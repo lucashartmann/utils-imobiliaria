@@ -1,0 +1,108 @@
+Screen {
+    background: rgb(200,200,200);
+}
+
+Grid {
+    grid-rows: 24%;
+    grid-columns: 52%;
+    grid-gutter: 2;
+    grid-size: 2;
+    overflow: auto auto;
+    width: 100%;
+    align: center middle;
+    margin: 0;
+}
+
+Grid Image{
+    max-width: 80%;
+    width: auto;
+    height: auto;
+}
+
+Center Button:first-child {
+    margin-right: 1;
+}
+
+Center Button {
+    width: 50%;
+}
+
+Center {
+    layout: horizontal;
+    margin-top:1;
+}
+
+ListView {
+    width: 100%;
+    layout: grid;
+    grid-rows: 40%;
+    grid-columns: 60%;
+    grid-gutter: 2;
+    grid-size: 2;
+    align: center middle;
+    overflow: auto auto;
+    & > ListItem.-highlight {
+                background: orange;
+    }
+}
+
+
+ListView ListItem{
+    margin: 0 1 0 1;
+    min-width: 60%;
+    width: auto;
+    height: auto;
+}
+
+ListView ListItem Static{
+    width: auto;
+    height: auto;
+    text-align: center;
+    content-align: center middle;
+}
+
+ListView ListItem Image{
+    width: auto;
+    height: auto;
+    max-height: 99%;
+}
+
+#header {
+    dock: top;
+    height: 7%;
+    margin-top:1;
+}
+
+#header Button {
+    margin-right: 1;
+}
+
+#header Static {
+    color: black;
+    width: auto;
+    height: auto;
+    text-align: center;
+    content-align: center middle;
+    margin: 1 2 0 2;
+}
+
+#header Input {
+    min-width: 40%;
+    width: auto;
+}
+
+#header Button {
+    width: 10%;
+}
+
+#conteudo {
+    height: 100%;
+    width: 100%;
+}
+
+.imagens {
+    background: rgb(106, 103, 103) 80%;
+    width: 33%;
+    height: 100%;
+    margin: 1;
+}

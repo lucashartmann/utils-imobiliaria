@@ -1,0 +1,6 @@
+textual
+textual-image
+IOPaint
+beautifulsoup4
+# ollama
+selenium webdriver-manager

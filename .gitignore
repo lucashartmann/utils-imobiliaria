@@ -1,0 +1,8 @@
+__pycache__
+.venv
+teste.py
+teste.png
+Destino/
+Imagens/
+Mascáras/
+*.png
