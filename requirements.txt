@@ -3,4 +3,5 @@ textual-image
 IOPaint
 beautifulsoup4
 # ollama
-selenium webdriver-manager
+selenium 
+webdriver-manager

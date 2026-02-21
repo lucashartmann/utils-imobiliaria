@@ -6,3 +6,6 @@ Destino/
 Imagens/
 Mascáras/
 *.png
+build/
+dist/
+*.spec

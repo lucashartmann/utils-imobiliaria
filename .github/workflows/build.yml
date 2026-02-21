@@ -21,12 +21,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
+          pip install -r requirements.txt --use-deprecated=legacy-resolver
           pip install pyinstaller
 
       - name: Build executable with PyInstaller
         run: pyinstaller --onedir `
-            --add-data "App.tcss;App.tcss" `
+            --add-data "App.tcss;." `
             --collect-submodules rich `
             --collect-submodules textual `
             --name "Imob+" `
@@ -35,5 +35,5 @@ jobs:
       - name: Upload do artefato
         uses: actions/upload-artifact@v4
         with:
-          name: utils-imobiliaria
+          name: Imob+
           path: dist/Imob+

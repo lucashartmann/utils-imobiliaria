@@ -69,18 +69,24 @@ ListView ListItem Image{
 
 #header {
     dock: top;
-    height: 7%;
+    min-height: 3;
+    height: auto;
     margin-top:1;
+    width: 100%;
 }
 
 #header Button {
     margin-right: 1;
+    min-height: 0;
+    width: auto;
+    height: 100%;
+    border: none;
 }
 
 #header Static {
     color: black;
     width: auto;
-    height: auto;
+    height: 100%;
     text-align: center;
     content-align: center middle;
     margin: 1 2 0 2;
