@@ -13,7 +13,7 @@ from tkinter import filedialog
 
 
 class App(App):
-    CSS_PATH = "App.tcss"
+    CSS_PATH = "app.tcss"
 
     arquivos = [
         ("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")
@@ -24,13 +24,13 @@ class App(App):
         super().__init__(**kwargs)
         self.home = os.getcwd()
         if "Imagens" not in os.listdir():
-            os.mkdir(self.home+"/Imagens")
+            os.mkdir(self.home+"/imagens")
         self.imagens_path = self.home + "\Imagens"
         if "Mascáras" not in os.listdir():
-            os.mkdir(self.home+"/Mascáras")
+            os.mkdir(self.home+"/mascáras")
         self.mascaras_path = self.home + "\Mascáras"
         if "Destino" not in os.listdir():
-            os.mkdir(self.home+"/Destino")
+            os.mkdir(self.home+"/destino")
         self.destino_path = self.home + "\Destino"
 
     def on_mount(self):
@@ -273,12 +273,15 @@ class App(App):
                 "--output", self.destino_path,
             ]
 
-            subprocess.run(
+            result = subprocess.run(
                 cmd,
-                check=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL
+                capture_output=True,
+                text=True
             )
+
+            print("STDOUT:", result.stdout)
+            print("STDERR:", result.stderr)
+            print("RETURN CODE:", result.returncode)
 
         except Exception as e:
             print(e)

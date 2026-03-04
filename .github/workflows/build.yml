@@ -26,11 +26,11 @@ jobs:
 
       - name: Build executable with PyInstaller
         run: pyinstaller --onedir `
-            --add-data "App.tcss;." `
+            --add-data "app.tcss;." `
             --collect-submodules rich `
             --collect-submodules textual `
             --name "Imob+" `
-            Main.py
+            main.py
 
       - name: Upload do artefato
         uses: actions/upload-artifact@v4
