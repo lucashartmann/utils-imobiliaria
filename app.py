@@ -263,6 +263,37 @@ class App(App):
                             except Exception as e:
                                 print("Erro ao baixar:", e)
                                 continue
+        elif "imobiliariazimmer" in url:
+            match = re.search(r"/(\d+)/", url)
+            if not match:
+                print("ID do imóvel não encontrado")
+                return
+
+            imovel_id = match.group(1)
+
+            api = f"https://imobiliariazimmer.com.br/Services/RealEstate/JSONP/List.aspx?mode=realty&nt=2&ri={imovel_id}"
+
+            resp = requests.get(api, headers=headers)
+            data = resp.text
+
+            pattern = r"https://inetsoft\.imobiliariazimmer\.com\.br/Fotos/[^\"]+\.jpg"
+            imagens = re.findall(pattern, data)
+
+            imagens = list(set(imagens))
+
+            print(f"Encontradas {len(imagens)} imagens")
+
+            for i, img_url in enumerate(imagens):
+                try:
+                    print("Baixando:", img_url)
+
+                    img_data = requests.get(img_url, headers=headers).content
+
+                    with open(f"{self.imagens_path}/img_{i}.jpg", "wb") as f:
+                        f.write(img_data)
+
+                except Exception as e:
+                    print("Erro:", e)
 
     def pintagem(self, mascara):
         try:
