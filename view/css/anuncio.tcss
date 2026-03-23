@@ -1,0 +1,104 @@
+Tab {
+    color: black;
+}
+
+Underline .underline--bar {
+    color: black;
+}
+
+Screen {
+    overflow: auto auto;
+}
+
+TextArea {
+    width: 100%;
+    height: auto;
+    color: green;
+    border: black;
+    background: transparent;
+    align: center middle;
+    content-align: center middle;
+    margin: 0 5 0 5;
+}
+
+Button {
+    align: center middle;
+    min-height: 0;
+    min-width: 0;
+    width: 1;
+    height: 4;
+    content-align: center middle;
+    text-align: center;
+}
+
+#center_grid {
+    width: 100%;
+    height: 30%;
+    align: center middle;
+    content-align: center middle;
+}
+
+Grid {
+    # display: none;
+    grid-size: 2 2;
+    grid-rows: 100%;
+    grid-columns: 30%;
+    height: 100%;
+    width: 50%;
+    align: center middle;
+    content-align: center middle;
+    border: 50% black;
+    margin: 5;
+}
+
+
+Grid Image{
+    # display: none;
+    # grid-gutter: 1;
+    # grid-size: 2 2;
+    height: 100%;
+    width: 100%;
+    align: center middle;
+}
+
+Horizontal {
+    width: 100%;
+    height: 20%;
+    background: rgba(0, 0, 0, 0.2);
+    align: center middle;
+    margin: 2 5 2 5;
+}
+
+Tabs Horizontal {
+    width: auto;
+    height: auto;
+    align: center middle;
+    content-align: center middle;
+    text-align: center;
+    background: transparent;
+    margin: 0;
+}
+
+Static {
+    color: black;
+    width: auto;
+    margin: 2;
+}
+
+Input {
+    width: 50%;
+    color: black;
+    border: black;
+    height: 50%;
+    background: transparent;
+}
+
+#descricao {
+    width: 95%;
+    color: black;
+    border: black;
+    height: 100%;
+    background: transparent;
+    margin: 0;
+}
+

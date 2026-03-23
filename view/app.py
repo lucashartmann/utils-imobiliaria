@@ -1,22 +1,24 @@
-import asyncio
 import re
 from textual.app import App
 from textual_image.widget import Image
-from textual.widgets import Button, Static, Input, ListItem, ListView, ProgressBar
+from textual.widgets import Button, Static, Input, ListItem, ListView, ProgressBar, TabbedContent, TabPane, Tab, Tabs
 from textual.containers import Horizontal, Vertical, Center, Grid
 import subprocess
 import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-import tkinter as tk
-from tkinter import filedialog
 from textual.worker import get_current_worker
 from textual.renderables.bar import Bar as BarRenderable
-
+from view.anuncio import Anuncio
+from utils.selecionar_arquivos import selecionar_arquivos
 
 class App(App):
-    CSS_PATH = "app.tcss"
+    CSS_PATH = ["css/base.tcss", "css/app.tcss"]
+    
+    SCREENS = {
+        "anuncio": Anuncio
+    }
 
     arquivos = [
         ("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")
@@ -69,8 +71,18 @@ class App(App):
                 if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
                     self.query_one("#grid_imagens_depois").mount(
                         Image(f"{self.destino_path}\\{caminho_imagem}"))
+                    
+    def on_screen_resume(self):
+        self.query_one(Tabs).active = self.query_one(
+            "#tab_imagens", Tab).id
+        
+    def on_tabs_tab_activated(self, event: Tabs.TabActivated):
+        if event.tabs.active == self.query_one("#tab_anuncio", Tab).id:
+                self.app.push_screen("anuncio")
 
     def compose(self):
+        yield Tabs(Tab('Imagens', id="tab_imagens"), Tab("Anúncio", id="tab_anuncio"))
+
         with Horizontal(id="header"):
             yield Static("Link do site:")
             yield Input(placeholder="link aqui")
@@ -109,7 +121,7 @@ class App(App):
                 os.startfile(self.home)
 
             case "Escolher Imagens":
-                imagens = self.selecionar_arquivo()
+                imagens = selecionar_arquivos()
                 caminho = ""
                 match primeiro_container.id:
                     case "grid_imagens_depois":
@@ -459,20 +471,4 @@ class App(App):
                     except Exception as e:
                         print(f'Erro ao converter {arquivo}: {e}')
 
-    def selecionar_arquivo(self):
-        try:
-            root = tk.Tk()
-            root.withdraw()
-
-            caminhos = filedialog.askopenfilenames(
-                title="Selecione",
-                filetypes=self.arquivos
-            )
-
-            caminhos = list(caminhos)
-
-            root.destroy()
-            return caminhos
-        except Exception as e:
-            print(e)
-            pass
+  

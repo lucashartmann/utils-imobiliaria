@@ -1,5 +1,6 @@
 Screen {
     background: rgb(200,200,200);
+    overflow: hidden hidden;
 }
 
 Grid {
@@ -68,10 +69,10 @@ ListView ListItem Image{
 }
 
 #header {
-    dock: top;
+    # dock: top;
     min-height: 3;
     height: auto;
-    margin-top:1;
+    margin-top:2;
     width: 100%;
     align: center middle;
 }
@@ -110,7 +111,7 @@ ListView ListItem Image{
 .imagens {
     background: rgb(106, 103, 103) 80%;
     width: 33%;
-    height: 100%;
+    height: 85%;
     margin: 1;
 }
 
@@ -146,3 +147,5 @@ ListView ListItem Image{
             height: 20;
         }
     }
+
+
