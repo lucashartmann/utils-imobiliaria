@@ -73,6 +73,7 @@ ListView ListItem Image{
     height: auto;
     margin-top:1;
     width: 100%;
+    align: center middle;
 }
 
 #header Button {
@@ -112,3 +113,36 @@ ListView ListItem Image{
     height: 100%;
     margin: 1;
 }
+
+
+#progress {
+    width: 100%;
+    height: 3%;
+    margin-top: 2;
+    color: green;
+    align: center middle;
+    # background: rgb(106, 103, 103) 80%;
+    # height: 10%;
+}
+
+#progress Bar {
+        width: 50%;
+        max-height: 2000;
+        height: 100%;
+
+        &> .bar--bar {
+            color: $primary;
+            background: $surface;
+            height: 20;
+        }
+        &> .bar--indeterminate {
+            color: $error;
+            background: $surface;
+            height: 20;
+        }
+        &> .bar--complete {
+            color: $success;
+            background: $surface;
+            height: 20;
+        }
+    }

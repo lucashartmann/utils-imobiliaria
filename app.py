@@ -1,7 +1,8 @@
+import asyncio
 import re
 from textual.app import App
 from textual_image.widget import Image
-from textual.widgets import Button, Static, Input, ListItem, ListView
+from textual.widgets import Button, Static, Input, ListItem, ListView, ProgressBar
 from textual.containers import Horizontal, Vertical, Center, Grid
 import subprocess
 import os
@@ -10,6 +11,8 @@ from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 import tkinter as tk
 from tkinter import filedialog
+from textual.worker import get_current_worker
+from textual.renderables.bar import Bar as BarRenderable
 
 
 class App(App):
@@ -18,6 +21,16 @@ class App(App):
     arquivos = [
         ("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")
     ]
+
+    BINDINGS = [
+        ("cntrl+q", "sair", "Sair"),
+    ]
+
+    def action_sair(self):
+        for worker in self.workers:
+            worker.stop()
+        self.exit()
+
     caminho_mascara_selecionada = ""
 
     def __init__(self, **kwargs):
@@ -64,6 +77,8 @@ class App(App):
             yield Button("Extrair")
             yield Button("Remover Logo")
             yield Button("Abrir Diretório")
+
+        yield ProgressBar(id="progress", total=100, show_percentage=True)
 
         with Horizontal(id="conteudo"):
             with Vertical(classes="imagens"):
@@ -135,9 +150,8 @@ class App(App):
                         thread=True,
                         exclusive=True,
                     )
-                    await worker.wait()
-                    await self.converter()
-                    self.carregar_imagens()
+                    # await worker.wait()
+                    # await self.converter()
                     self.query_one(Input).value = ""
                 except Exception as e:
                     self.notify(f"Erro! {e}")
@@ -210,6 +224,8 @@ class App(App):
     #         return None
 
     async def extracao(self, url):
+        self.query_one("#progress").total = 0
+        worker = get_current_worker()
         headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
         }
@@ -225,21 +241,31 @@ class App(App):
 
             imagens = list(set(imagens))
 
+            self.query_one("#progress").total = len(imagens)
+
             print(f"Encontradas {len(imagens)} imagens 1920px")
 
             for i, img_url in enumerate(imagens):
                 try:
                     print("Baixando:", img_url)
                     img_data = requests.get(img_url, headers=headers).content
-                    with open(f"{self.imagens_path}/img_{i}.jpg", "wb") as f:
+                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    with open(img_path, "wb") as f:
                         f.write(img_data)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        f"img_{i}.jpg"
+                    )
+
+                    self.query_one("#progress").advance(1)
                 except Exception as e:
                     print("Erro:", e)
 
         elif "zapimoveis" in url:
             imgs = soup.find_all("img")
             print(f"Encontradas {len(imgs)} tags <img> na página.")
-
+            self.query_one("#progress").total = len(imgs)
             for img in imgs:
                 srcset = img.get("srcset")
                 if srcset:
@@ -260,6 +286,13 @@ class App(App):
                                     img_url, headers=headers).content
                                 with open(save_path, "wb") as f:
                                     f.write(img_data)
+
+                                self.call_from_thread(
+                                    self._adicionar_imagem_na_ui,
+                                    f"img_{i}.jpg"
+                                )
+
+                                self.query_one("#progress").advance(1)
                             except Exception as e:
                                 print("Erro ao baixar:", e)
                                 continue
@@ -281,6 +314,8 @@ class App(App):
 
             imagens = list(set(imagens))
 
+            self.query_one("#progress").total = len(imagens)
+
             print(f"Encontradas {len(imagens)} imagens")
 
             for i, img_url in enumerate(imagens):
@@ -292,8 +327,64 @@ class App(App):
                     with open(f"{self.imagens_path}/img_{i}.jpg", "wb") as f:
                         f.write(img_data)
 
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        f"img_{i}.jpg"
+                    )
+
+                    self.query_one("#progress").advance(1)
+
                 except Exception as e:
                     print("Erro:", e)
+
+        elif "foxterciaimobiliaria.com.br" in url:
+            pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
+            imagens = list(set(re.findall(pattern, html)))
+
+            print(f"Encontradas {len(imagens)} imagens")
+
+            headers_img = {
+                "User-Agent": headers["User-Agent"],
+                "Referer": "https://www.foxterciaimobiliaria.com.br/"
+            }
+
+            self.query_one("#progress").total = len(imagens)
+
+            for i, url in enumerate(imagens):
+                try:
+                    self.notify(f"Baixando: {url}")
+
+                    # if worker.is_cancelled:
+                    #     return
+
+                    resp = requests.get(url, headers=headers_img, timeout=10)
+
+                    if resp.status_code == 200:
+                        img_path = os.path.join(
+                            self.imagens_path, f"img_{i}.jpg")
+                        with open(f"{self.imagens_path}/img_{i}.jpg", "wb") as f:
+                            f.write(resp.content)
+
+                        self.call_from_thread(
+                            self._adicionar_imagem_na_ui,
+                            f"img_{i}.jpg"
+                        )
+
+                        self.query_one("#progress").advance(1)
+
+                    else:
+                        self.notify(
+                            f"Erro ao baixar imagem: HTTP {resp.status_code}")
+
+                except Exception as e:
+                    self.notify(f"Erro ao baixar imagem: {e}")
+
+    def _adicionar_imagem_na_ui(self, caminho_imagem: str):
+        try:
+            self.query_one("#grid_imagens_antes").mount(
+                Image(f"{self.imagens_path}\\{caminho_imagem}"))
+        except Exception as e:
+            self.notify(f"Erro ao adicionar imagem na UI: {e}")
 
     def pintagem(self, mascara):
         try:
