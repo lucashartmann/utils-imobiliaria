@@ -141,14 +141,14 @@ class App(App):
                         with open(os.path.join(caminho, nome_arquivo), "wb") as f:
                             f.write(data)
                     except Exception as e:
-                        self.notify(e)
+                        self.notify(f"Erro ao copiar imagem: {e}")
                         continue
 
             case "Limpar Imagens":
                 try:
                     primeiro_container.query_one(Image)
                 except Exception as e:
-                    self.notify(e)
+                    self.notify(f"Erro ao limpar imagens: {e}")
                     return
                 for widget_imagem in primeiro_container.query(Image):
                     os.remove(widget_imagem.image)
@@ -172,8 +172,12 @@ class App(App):
             case "Remover Logo":
                 try:
                     if self.caminho_mascara_selecionada:
-                        self.pintagem(self.caminho_mascara_selecionada)
-                        self.carregar_destino()
+                        self.run_worker(
+                            lambda: self.pintagem(self.caminho_mascara_selecionada),
+                            name="Removendo logo",
+                            thread=True,
+                            exclusive=True,
+                        )
                     else:
                         self.notify("Selecione uma máscara")
                 except Exception as e:
@@ -260,7 +264,7 @@ class App(App):
 
             for i, img_url in enumerate(imagens):
                 try:
-                    self.notify("Baixando:", img_url)
+                    self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(img_url, headers=headers).content
                     img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
                     with open(img_path, "wb") as f:
@@ -273,7 +277,7 @@ class App(App):
 
                     self.query_one("#progress").advance(1)
                 except Exception as e:
-                    self.notify("Erro:", e)
+                    self.notify(f"Erro: {e}")
 
         elif "zapimoveis" in url:
             imgs = soup.find_all("img")
@@ -307,7 +311,7 @@ class App(App):
 
                                 self.query_one("#progress").advance(1)
                             except Exception as e:
-                                self.notify("Erro ao baixar:", e)
+                                self.notify(f"Erro ao baixar: {e}")
                                 continue
         elif "imobiliariazimmer" in url:
             match = re.search(r"/(\d+)/", url)
@@ -333,12 +337,12 @@ class App(App):
 
             for i, img_url in enumerate(imagens):
                 try:
-                    self.notify("Baixando:", img_url)
+                    self.notify(f"Baixando: {img_url}")
 
                     img_data = requests.get(img_url, headers=headers).content
 
                     img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
-                    
+
                     with open(img_path, "wb") as f:
                         f.write(img_data)
 
@@ -350,7 +354,7 @@ class App(App):
                     self.query_one("#progress").advance(1)
 
                 except Exception as e:
-                    self.notify("Erro:", e)
+                    self.notify(f"Erro: {e}")
 
         elif "quintoandar.com.br" in url:
             id_match = re.search(r"/imovel/(\d+)/", url)
@@ -376,7 +380,8 @@ class App(App):
 
             for foto in data:
                 if isinstance(foto, dict):
-                    url_img = foto.get("url") or foto.get("imageUrl") or foto.get("src")
+                    url_img = foto.get("url") or foto.get(
+                        "imageUrl") or foto.get("src")
 
                     if url_img:
                         # if "original" in url_img:
@@ -387,7 +392,6 @@ class App(App):
                             url_img = "https://www.quintoandar.com.br/img/" + url_img
                         imagens.append(url_img)
 
-            
             imagens_unicas = {}
             for img_url in imagens:
                 match = re.search(r"(MG\d+\.jpg)", img_url)
@@ -407,7 +411,7 @@ class App(App):
                         continue
 
                     nome_arquivo = f"img_{i}.jpg"
-                    
+
                     img_path = os.path.join(self.imagens_path, nome_arquivo)
 
                     with open(img_path, "wb") as f:
@@ -422,6 +426,54 @@ class App(App):
 
                 except Exception as e:
                     self.notify(f"Erro ao baixar {img_url}: {e}")
+
+        elif "guarida.com.br" in url:
+            imovel_id_match = re.search(r"/(\d+)(?:\?|$)", url)
+            if not imovel_id_match:
+                self.notify("ID do imóvel não encontrado")
+                return
+
+            imovel_id = imovel_id_match.group(1)
+
+            resp = requests.get(url, headers=headers)
+            html = resp.text
+
+            imagens_brutas = re.findall(
+                rf"https:(?:\\/|/)(?:\\/|/)cdn\.imoview\.com\.br(?:\\/|/)guarida(?:\\/|/)Imoveis(?:\\/|/){imovel_id}(?:\\/|/)[^\"'\s]+?\.(?:jpe?g|png|webp)(?:\?[^\"'\s]*)?",
+                html,
+                flags=re.IGNORECASE,
+            )
+            imagens = list(dict.fromkeys(
+                img.replace("\\/", "/").replace("\\u0026", "&")
+                for img in imagens_brutas
+            ))
+
+            self.notify(f"Encontradas {len(imagens)} imagens")
+
+            self.query_one("#progress").total = len(imagens)
+
+            for i, img_url in enumerate(imagens):
+                try:
+                    resp = requests.get(img_url, headers=headers, timeout=10)
+
+                    if resp.status_code != 200:
+                        continue
+
+                    nome = f"img_{i}.jpg"
+                    caminho = f"{self.imagens_path}/{nome}"
+
+                    with open(caminho, "wb") as f:
+                        f.write(resp.content)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        caminho
+                    )
+
+                    self.query_one("#progress").advance(1)
+
+                except Exception as e:
+                    self.notify(f"Erro: {e}")
 
         elif "foxterciaimobiliaria.com.br" in url:
             pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
@@ -448,7 +500,7 @@ class App(App):
                     if resp.status_code == 200:
                         img_path = os.path.join(
                             self.imagens_path, f"img_{i}.jpg")
-                        
+
                         with open(img_path, "wb") as f:
                             f.write(resp.content)
 
@@ -476,24 +528,57 @@ class App(App):
         except Exception as e:
             self.notify(f"Erro ao adicionar imagem na UI: {e}")
 
+    def _resetar_progresso(self, total: int):
+        progress = self.query_one("#progress")
+        progress.update(total=total, progress=0)
+
+    def _avancar_progresso(self, passos: int = 1):
+        self.query_one("#progress").advance(passos)
+
     def pintagem(self, mascara):
+        etapas_total = 5
         try:
+            self.call_from_thread(self._resetar_progresso, etapas_total)
+            self.call_from_thread(self.notify, "Iniciando remoção de logo...")
+
             cmd = [
                 "iopaint", "run",
                 "--image", self.imagens_path,
                 "--mask", mascara,
                 "--output", self.destino_path,
             ]
+            self.call_from_thread(self.notify, f"Executando: {' '.join(cmd)}")
+            self.call_from_thread(self._avancar_progresso, 1)
 
-            result = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
                 text=True
             )
+            self.call_from_thread(self._avancar_progresso, 1)
 
-            self.notify("STDOUT:", result.stdout)
-            self.notify("STDERR:", result.stderr)
-            self.notify("RETURN CODE:", result.returncode)
+            stdout, stderr = process.communicate()
+            self.call_from_thread(self._avancar_progresso, 1)
+
+            if stdout and stdout.strip():
+                for linha in stdout.splitlines()[-3:]:
+                    self.call_from_thread(self.notify, f"iopaint: {linha}")
+
+            if stderr and stderr.strip():
+                for linha in stderr.splitlines()[-3:]:
+                    self.call_from_thread(self.notify, f"iopaint stderr: {linha}")
+
+            if process.returncode == 0:
+                self.call_from_thread(self.notify, "Remoção de logo concluída com sucesso")
+                self.call_from_thread(self.carregar_destino)
+            else:
+                self.call_from_thread(
+                    self.notify,
+                    f"Falha ao remover logo (código {process.returncode})"
+                )
+
+            self.call_from_thread(self._avancar_progresso, 2)
 
         except Exception as e:
-            self.notify(e)
+            self.call_from_thread(self.notify, f"Erro na pintagem: {e}")
