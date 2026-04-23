@@ -9,3 +9,6 @@ Mascáras/
 build/
 dist/
 *.spec
+test_images/
+test_logo_detector.py
+logo_detector.py
