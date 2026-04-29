@@ -1,3 +1,4 @@
+import json
 import re
 from textual.app import App
 from textual_image.widget import Image
@@ -105,6 +106,7 @@ class App(App):
                 yield ListView(id="lv_mascaras", classes="sub_imagens")
                 with Center():
                     yield Button("Escolher Imagens")
+                    yield Button("Atualizar Máscaras")
                     # yield Button("Limpar Imagens")
             with Vertical(classes="imagens"):
                 # Imagens sem mascara
@@ -118,6 +120,15 @@ class App(App):
         vertical = center.parent
         primeiro_container = list(vertical.children)[0]
         match evento.button.label:
+            
+            case "Atualizar Máscaras":
+                self.query_one("#lv_mascaras").clear()
+                if len(os.listdir(self.mascaras_path)) > 0:
+                    for caminho_imagem in os.listdir(self.mascaras_path):
+                        if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
+                            self.query_one("#lv_mascaras").mount(ListItem(
+                                Image(f"{self.mascaras_path}\\{caminho_imagem}"), Static(caminho_imagem)))
+            
             case "Abrir Diretório":
                 os.startfile(self.home)
 
@@ -476,8 +487,42 @@ class App(App):
                     self.notify(f"Erro: {e}")
 
         elif "foxterciaimobiliaria.com.br" in url:
-            pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
-            imagens = list(set(re.findall(pattern, html)))
+            def _foxter_url_alta_resolucao(img_url: str) -> str:
+                if img_url.startswith("http"):
+                    if "/foxter/wm/" in img_url:
+                        caminho = img_url.split("/foxter/wm/", 1)[1]
+                        return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{caminho}"
+
+                    return (
+                        re.sub(r"/outer/\d+/", "/outer/1920/", img_url, count=1)
+                        .replace("https://images.foxter.com.br", "https://blob.foxter.com.br")
+                    )
+
+                return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{img_url.lstrip('/')}"
+
+            imagens = []
+            try:
+                dados_next = json.loads(
+                    re.search(
+                        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+                        html,
+                    ).group(1)
+                )
+                produto = dados_next["props"]["pageProps"]["product"]
+                imagens_data = produto.get("images", {}).get("data", [])
+
+                imagens = [
+                    _foxter_url_alta_resolucao(item["etag"])
+                    for item in imagens_data
+                    if item.get("etag")
+                ]
+            except Exception:
+                pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
+                imagens_brutas = list(dict.fromkeys(re.findall(pattern, html)))
+                imagens = [
+                    _foxter_url_alta_resolucao(img_url)
+                    for img_url in imagens_brutas
+                ]
 
             self.notify(f"Encontradas {len(imagens)} imagens")
 
