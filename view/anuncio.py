@@ -55,10 +55,10 @@ class Anuncio(Screen):
             yield Grid()
         with Center():
             yield Button("Gerar Anúncio")
-        with Horizontal():
+        with Horizontal(id="h_titulo"):
             yield Static("Título:")
             yield Input(id="titulo", placeholder="Titulo do anúncio")
-        with Horizontal():
+        with Horizontal(id="h_descricao"):
             yield Static("Descrição:")
             yield Input(id="descricao", placeholder="Descrição do anúncio")
             

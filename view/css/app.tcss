@@ -21,7 +21,7 @@ Grid {
 
 Center {
     layout: horizontal;
-    background: rgb(99, 99, 99);
+    # background: rgb(99, 99, 99);
     margin-top:1;
     Button {
         width: 50%;
@@ -35,7 +35,7 @@ Center {
 ListView {
     width: 100%;
     layout: grid;
-    grid-rows: 30%;
+    grid-rows: 40%;
     grid-columns: 40%;
     grid-gutter: 0;
     grid-size: 2;
@@ -68,14 +68,14 @@ ListView {
     # dock: top;
     min-height: 3;
     height: auto;
-    margin-top:2;
+    margin-top:1;
     width: 100%;
     align: center middle;
     Button {
         margin-right: 1;
         min-height: 0;
         width: auto;
-        height: 4;
+        height: 3;
         border: none;
         width: 10%;
     }
@@ -91,7 +91,7 @@ ListView {
         min-width: 40%;
         color: whitesmoke;
         width: auto;
-        height: 4;
+        height: 3;
     }
 }
 
@@ -99,43 +99,48 @@ ListView {
     height: 90%;
     width: 100%;
     margin: 2;
+    margin-top: 0;
 }
 
 .imagens {
-    background: rgb(24, 21, 21) 80%;
     width:  33%;
-    height: 87%;
+    height: 95%;
     margin: 1;
     align: center middle;
 }
 
 #progress {
     width: 100%;
-    height: 3%;
-    margin-top: 2;
+    height: 1;
+    margin-top: 1;
     color: whitesmoke;
     align: center middle;
+    margin-bottom: 0;
     # background: rgb(106, 103, 103) 80%;
     # height: 10%;
     Bar {
             width: 50%;
-            max-height: 2000;
+            height: 1;
             height: 100%;
-
+            margin-bottom: 0;
             &> .bar--bar {
                 color: $primary;
                 background: $surface;
-                height: 20;
+                height: 1;
             }
             &> .bar--indeterminate {
                 color: $error;
                 background: $surface;
-                height: 20;
+                height: 1;
             }
             &> .bar--complete {
                 color: $success;
                 background: $surface;
-                height: 20;
+                height: 1;
             }
     }
+}
+
+Grid, ListView {
+    background: rgb(24, 21, 21) 80%;
 }

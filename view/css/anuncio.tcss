@@ -1,72 +1,10 @@
 Tab {
     color: black;
+    # height: 5;
 }
 
 Underline .underline--bar {
     color: black;
-}
-
-Screen {
-    overflow: auto auto;
-}
-
-TextArea {
-    width: 100%;
-    height: auto;
-    color: green;
-    border: black;
-    background: transparent;
-    align: center middle;
-    content-align: center middle;
-    margin: 0 5 0 5;
-}
-
-Button {
-    align: center middle;
-    min-height: 0;
-    min-width: 0;
-    width: 1;
-    height: 4;
-    content-align: center middle;
-    text-align: center;
-}
-
-#center_grid {
-    width: 100%;
-    height: 30%;
-    align: center middle;
-    content-align: center middle;
-}
-
-Grid {
-    # display: none;
-    grid-size: 2 2;
-    grid-rows: 100%;
-    grid-columns: 30%;
-    height: 100%;
-    width: 50%;
-    align: center middle;
-    content-align: center middle;
-    border: 50% black;
-    margin: 5;
-}
-
-
-Grid Image{
-    # display: none;
-    # grid-gutter: 1;
-    # grid-size: 2 2;
-    height: 100%;
-    width: 100%;
-    align: center middle;
-}
-
-Horizontal {
-    width: 100%;
-    height: 20%;
-    background: rgba(0, 0, 0, 0.2);
-    align: center middle;
-    margin: 2 5 2 5;
 }
 
 Tabs Horizontal {
@@ -77,28 +15,61 @@ Tabs Horizontal {
     text-align: center;
     background: transparent;
     margin: 0;
+    height: 2;
 }
 
-Static {
-    color: black;
-    width: auto;
-    margin: 2;
+
+Center {
+    width: 100%;
+    height: 6%;
+    Button {
+        height: 100%;
+        width: 20%;
+    }
 }
 
-Input {
-    width: 50%;
-    color: black;
-    border: black;
-    height: 50%;
-    background: transparent;
+#center_grid {
+    width: 100%;
+    height: 20%;
+    Grid {
+        overflow-y: auto;
+        overflow-x: hidden;
+    }
 }
 
-#descricao {
-    width: 95%;
-    color: black;
-    border: black;
-    height: 100%;
-    background: transparent;
-    margin: 0;
+Horizontal {
+    # margin-top: 3;
+    content-align: center middle;
+    align: center middle;
+    margin-bottom: 0;
+    # margin: 2
+    Input {
+        width: 95%;
+        height: 4;
+        align: center middle;
+        background: transparent;
+        border: solid black 15%;
+    }
+    #descricao {
+        height: 100%;
+    }
+    Static {
+        color: black;
+        width: auto;
+        height: 100%;
+        text-align: center;
+        content-align: center middle;
+        align: center middle;
+    }
 }
 
+#h_titulo {
+    margin-top: 3;
+}
+
+TextArea {
+  background: transparent;
+  color: green;
+  height: 20%;
+  margin: 2;
+}
