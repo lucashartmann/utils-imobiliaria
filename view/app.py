@@ -366,8 +366,51 @@ class App(App):
 
                 except Exception as e:
                     self.notify(f"Erro: {e}")
+                    
+        elif 'veronezimoveis.com.br' in url:
+            id_match = re.search(r"/imovel/(\d+)/", url)
+            if not id_match:
+                self.notify("ID do imóvel não encontrado")
+                return
 
+            imovel_id = id_match.group(1)
+
+            imagens = list(dict.fromkeys(
+                re.findall(
+                    r"https://www\.veronezimoveis\.com\.br/media/imoveis/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
+                    html,
+                    flags=re.IGNORECASE,
+                )
+            ))
+
+            if not imagens:
+                self.notify("Nenhuma imagem encontrada na página")
+                return
+
+            imagens = list(set(imagens))
+            self.notify(f"Encontradas {len(imagens)} imagens")
+            self.query_one("#progress").total = len(imagens)
+            for i, img_url in enumerate(imagens):
+                try:
+                    self.notify(f"Baixando: {img_url}")
+                    img_data = requests.get(img_url, headers=headers).content
+                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        img_path
+                    )
+
+                    self.query_one("#progress").advance(1)
+                except Exception as e:
+                    self.notify(f"Erro ao baixar: {e}")
+                    continue
+            
+            
         elif "quintoandar.com.br" in url:
+            
             id_match = re.search(r"/imovel/(\d+)/", url)
             if not id_match:
                 self.notify("ID do imóvel não encontrado")
@@ -395,21 +438,13 @@ class App(App):
                         "imageUrl") or foto.get("src")
 
                     if url_img:
-                        # if "original" in url_img:
-                        #     url_img = url_img.replace("original", "1280x1280")
                         if url_img.startswith("/"):
                             url_img = "https://www.quintoandar.com.br" + url_img
                         elif not url_img.startswith("http"):
                             url_img = "https://www.quintoandar.com.br/img/" + url_img
                         imagens.append(url_img)
 
-            imagens_unicas = {}
-            for img_url in imagens:
-                match = re.search(r"(MG\d+\.jpg)", img_url)
-                if match:
-                    imagens_unicas[match.group(1)] = img_url
-
-            imagens = list(imagens_unicas.values())
+            imagens = list(dict.fromkeys(imagens))
 
             self.notify(f"{len(imagens)} imagens encontradas")
 
