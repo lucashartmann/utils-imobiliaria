@@ -12,6 +12,7 @@ from urllib.parse import urljoin
 from textual.worker import get_current_worker
 from textual.renderables.bar import Bar as BarRenderable
 from view.anuncio import Anuncio
+from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.selecionar_arquivos import selecionar_arquivos
 
 
@@ -40,15 +41,17 @@ class App(App):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.home = os.getcwd()
-        if "Imagens" not in os.listdir():
-            os.mkdir(self.home+"/imagens")
-        self.imagens_path = self.home + "\Imagens"
-        if "Mascáras" not in os.listdir():
-            os.mkdir(self.home+"/mascáras")
-        self.mascaras_path = self.home + "\Mascáras"
-        if "Destino" not in os.listdir():
-            os.mkdir(self.home+"/destino")
-        self.destino_path = self.home + "\Destino"
+        self.imagens_path = os.path.join(self.home, "Imagens")
+        if not os.path.isdir(self.imagens_path):
+            os.mkdir(self.imagens_path)
+
+        self.mascaras_path = os.path.join(self.home, "Mascáras")
+        if not os.path.isdir(self.mascaras_path):
+            os.mkdir(self.mascaras_path)
+
+        self.destino_path = os.path.join(self.home, "Destino")
+        if not os.path.isdir(self.destino_path):
+            os.mkdir(self.destino_path)
 
     def on_mount(self):
         self.carregar_imagens()
@@ -289,6 +292,34 @@ class App(App):
                     self.query_one("#progress").advance(1)
                 except Exception as e:
                     self.notify(f"Erro: {e}")
+                    
+        elif "chavesnamao" in url:
+            imagens = extrair_imagens_chavesnamao(html, url)
+
+            if not imagens:
+                self.notify("Nenhuma imagem encontrada no Chaves na Mão")
+                return
+
+            self.notify(f"Encontradas {len(imagens)} imagens")
+            self.query_one("#progress").total = len(imagens)
+
+            for i, img_url in enumerate(imagens):
+                try:
+                    self.notify(f"Baixando: {img_url}")
+                    img_data = requests.get(img_url, headers=headers, timeout=10).content
+                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        img_path
+                    )
+
+                    self.query_one("#progress").advance(1)
+                except Exception as e:
+                    self.notify(f"Erro ao baixar: {e}")
 
         elif "zapimoveis" in url:
             imgs = soup.find_all("img")
