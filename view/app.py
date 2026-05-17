@@ -123,7 +123,7 @@ class App(App):
         vertical = center.parent
         primeiro_container = list(vertical.children)[0]
         match evento.button.label:
-            
+
             case "Atualizar Máscaras":
                 self.query_one("#lv_mascaras").clear()
                 if len(os.listdir(self.mascaras_path)) > 0:
@@ -131,7 +131,7 @@ class App(App):
                         if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
                             self.query_one("#lv_mascaras").mount(ListItem(
                                 Image(f"{self.mascaras_path}\\{caminho_imagem}"), Static(caminho_imagem)))
-            
+
             case "Abrir Diretório":
                 os.startfile(self.home)
 
@@ -187,7 +187,8 @@ class App(App):
                 try:
                     if self.caminho_mascara_selecionada:
                         self.run_worker(
-                            lambda: self.pintagem(self.caminho_mascara_selecionada),
+                            lambda: self.pintagem(
+                                self.caminho_mascara_selecionada),
                             name="Removendo logo",
                             thread=True,
                             exclusive=True,
@@ -292,7 +293,85 @@ class App(App):
                     self.query_one("#progress").advance(1)
                 except Exception as e:
                     self.notify(f"Erro: {e}")
-                    
+
+        elif "creditoreal" in url:
+            def extrair_imagens_creditoreal(html, url):
+                from bs4 import BeautifulSoup
+                import re
+
+                soup = BeautifulSoup(html, 'html.parser')
+                imagens = set()  
+
+                selectors = [
+                    'img[src*="imovel"]',           
+                    'img[data-src*="imovel"]',
+                    'img[data-lazy*="imovel"]',
+                    '.galeria img',
+                    '.carousel img',
+                    '.fotos img',
+                    'img[srcset]',
+                ]
+
+                for selector in selectors:
+                    for img in soup.select(selector):
+                        src = (img.get('src') or
+                               img.get('data-src') or
+                               img.get('data-lazy') or
+                               img.get('data-original'))
+
+                        if not src:
+                            continue
+                        if src.startswith('//'):
+                            src = 'https:' + src
+                        elif src.startswith('/'):
+                            src = 'https://www.creditoreal.com.br' + src
+
+                        if any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']) and len(src) > 30:
+                            if 'thumb' in src.lower() or 'small' in src.lower():
+                                src = re.sub(r'thumb|small',
+                                             'large', src, flags=re.I)
+
+                            imagens.add(src)
+
+                if len(imagens) < 3:
+                    for img in soup.find_all('img'):
+                        src = img.get('src') or img.get('data-src')
+                        if src and any(x in src for x in ['imovel', 'foto', 'galeria']) and 'logo' not in src.lower():
+                            if src.startswith('//'):
+                                src = 'https:' + src
+                            elif src.startswith('/'):
+                                src = 'https://www.creditoreal.com.br' + src
+                            imagens.add(src)
+
+                return list(imagens)
+            imagens = extrair_imagens_creditoreal(html, url)
+
+            if not imagens:
+                self.notify("Nenhuma imagem encontrada no Crédito Real")
+                return
+
+            self.notify(f"Encontradas {len(imagens)} imagens")
+            self.query_one("#progress").total = len(imagens)
+
+            for i, img_url in enumerate(imagens):
+                try:
+                    self.notify(f"Baixando: {img_url}")
+                    img_data = requests.get(
+                        img_url, headers=headers, timeout=10).content
+                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+
+                    with open(img_path, "wb") as f:
+                        f.write(img_data)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        img_path
+                    )
+
+                    self.query_one("#progress").advance(1)
+                except Exception as e:
+                    self.notify(f"Erro ao baixar: {e}")
+
         elif "chavesnamao" in url:
             imagens = extrair_imagens_chavesnamao(html, url)
 
@@ -306,7 +385,8 @@ class App(App):
             for i, img_url in enumerate(imagens):
                 try:
                     self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(img_url, headers=headers, timeout=10).content
+                    img_data = requests.get(
+                        img_url, headers=headers, timeout=10).content
                     img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
@@ -397,7 +477,7 @@ class App(App):
 
                 except Exception as e:
                     self.notify(f"Erro: {e}")
-                    
+
         elif 'veronezimoveis.com.br' in url:
             id_match = re.search(r"/imovel/(\d+)/", url)
             if not id_match:
@@ -438,10 +518,9 @@ class App(App):
                 except Exception as e:
                     self.notify(f"Erro ao baixar: {e}")
                     continue
-            
-            
+
         elif "quintoandar.com.br" in url:
-            
+
             id_match = re.search(r"/imovel/(\d+)/", url)
             if not id_match:
                 self.notify("ID do imóvel não encontrado")
@@ -678,10 +757,12 @@ class App(App):
 
             if stderr and stderr.strip():
                 for linha in stderr.splitlines()[-3:]:
-                    self.call_from_thread(self.notify, f"iopaint stderr: {linha}")
+                    self.call_from_thread(
+                        self.notify, f"iopaint stderr: {linha}")
 
             if process.returncode == 0:
-                self.call_from_thread(self.notify, "Remoção de logo concluída com sucesso")
+                self.call_from_thread(
+                    self.notify, "Remoção de logo concluída com sucesso")
                 self.call_from_thread(self.carregar_destino)
             else:
                 self.call_from_thread(
