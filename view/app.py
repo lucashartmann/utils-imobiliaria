@@ -300,50 +300,114 @@ class App(App):
                 import re
 
                 soup = BeautifulSoup(html, 'html.parser')
-                imagens = set()  
+                imagens = []
 
-                selectors = [
-                    'img[src*="imovel"]',           
-                    'img[data-src*="imovel"]',
-                    'img[data-lazy*="imovel"]',
-                    '.galeria img',
-                    '.carousel img',
-                    '.fotos img',
-                    'img[srcset]',
-                ]
+                def _normalizar_src(src: str) -> str:
+                    src = src.strip().replace("\\/", "/")
+                    if src.startswith('//'):
+                        src = 'https:' + src
+                    elif src.startswith('/'):
+                        src = urljoin(url, src)
+                    return src
 
-                for selector in selectors:
-                    for img in soup.select(selector):
-                        src = (img.get('src') or
-                               img.get('data-src') or
-                               img.get('data-lazy') or
-                               img.get('data-original'))
+                def _eh_url_imagem_valida(src: str) -> bool:
+                    src_lower = src.lower()
+                    if not any(ext in src_lower for ext in ['.jpg', '.jpeg', '.png', '.webp']):
+                        return False
+                    if 'storage.googleapis.com/snapproperty_imgs/creditoreal/' in src_lower:
+                        return True
+                    return any(chave in src_lower for chave in ['imovel', 'galeria', 'foto'])
 
-                        if not src:
-                            continue
-                        if src.startswith('//'):
-                            src = 'https:' + src
-                        elif src.startswith('/'):
-                            src = 'https://www.creditoreal.com.br' + src
+                def _adicionar_src(src: str):
+                    if not src:
+                        return
+                    src_normalizado = _normalizar_src(src)
+                    if _eh_url_imagem_valida(src_normalizado) and src_normalizado not in imagens:
+                        imagens.append(src_normalizado)
 
-                        if any(ext in src.lower() for ext in ['.jpg', '.jpeg', '.png', '.webp']) and len(src) > 30:
-                            if 'thumb' in src.lower() or 'small' in src.lower():
-                                src = re.sub(r'thumb|small',
-                                             'large', src, flags=re.I)
+                def _extrair_base_e_tamanho(src: str):
+                    nome = os.path.basename(src.split("?", 1)[0])
+                    match = re.match(
+                        r"^(?P<base>.+?)(?:_(?P<tamanho>\d+))?\.(?:jpe?g|png|webp)$",
+                        nome,
+                        flags=re.IGNORECASE,
+                    )
+                    if not match:
+                        return nome, 0
 
-                            imagens.add(src)
+                    base = match.group("base")
+                    tamanho = int(match.group("tamanho") or 0)
+                    return base, tamanho
+
+                def _selecionar_melhor_qualidade(urls: list[str]) -> list[str]:
+                    melhores: dict[str, tuple[int, str]] = {}
+
+                    for src in urls:
+                        base, tamanho = _extrair_base_e_tamanho(src)
+                        atual = melhores.get(base)
+
+                        if atual is None or tamanho > atual[0]:
+                            melhores[base] = (tamanho, src)
+
+                    return [item[1] for item in melhores.values()]
+
+                script_next_data = soup.find("script", id="__NEXT_DATA__")
+                if script_next_data and script_next_data.string:
+                    try:
+                        dados = json.loads(script_next_data.string)
+                        imagens_imovel = (
+                            dados.get("props", {})
+                            .get("pageProps", {})
+                            .get("imovel", {})
+                            .get("images", [])
+                        )
+
+                        urls_galeria = []
+                        for item in imagens_imovel:
+                            if isinstance(item, dict):
+                                for chave in ["src", "url", "imageUrl"]:
+                                    valor = item.get(chave)
+                                    if valor:
+                                        urls_galeria.append(_normalizar_src(valor))
+                            elif isinstance(item, str):
+                                urls_galeria.append(_normalizar_src(item))
+
+                        urls_validas = [
+                            src for src in urls_galeria if _eh_url_imagem_valida(src)
+                        ]
+
+                        if urls_validas:
+                            return _selecionar_melhor_qualidade(urls_validas)
+                    except Exception:
+                        pass
+
+                for item in soup.select('[aria-label="Zoom na imagem"] img, [role="button"][aria-label="Zoom na imagem"] img'):
+                    _adicionar_src(item.get('src'))
+                    _adicionar_src(item.get('data-src'))
+
+                if imagens:
+                    return imagens
+
+                for img in soup.find_all('img'):
+                    for atributo in ['src', 'data-src', 'data-lazy', 'data-original']:
+                        _adicionar_src(img.get(atributo))
+
+                    srcset = img.get('srcset')
+                    if srcset:
+                        for parte in srcset.split(','):
+                            _adicionar_src(parte.strip().split(' ')[0])
 
                 if len(imagens) < 3:
-                    for img in soup.find_all('img'):
-                        src = img.get('src') or img.get('data-src')
-                        if src and any(x in src for x in ['imovel', 'foto', 'galeria']) and 'logo' not in src.lower():
-                            if src.startswith('//'):
-                                src = 'https:' + src
-                            elif src.startswith('/'):
-                                src = 'https://www.creditoreal.com.br' + src
-                            imagens.add(src)
+                    padrao_storage = r'https?://storage\.googleapis\.com/snapproperty_imgs/creditoreal/[^"\'\s>]+?\.(?:jpe?g|png|webp)(?:\?[^"\'\s>]*)?'
+                    for img_url in re.findall(padrao_storage, html, flags=re.IGNORECASE):
+                        _adicionar_src(img_url)
 
-                return list(imagens)
+                    # Captura URLs de imagem que aparecem em blocos JSON/scripts.
+                    padrao_json = r'https?:\\?/\\?/storage\.googleapis\.com\\?/snapproperty_imgs\\?/creditoreal\\?/[^"\'\s>]+?\.(?:jpe?g|png|webp)(?:\\?[^"\'\s>]*)?'
+                    for img_url in re.findall(padrao_json, html, flags=re.IGNORECASE):
+                        _adicionar_src(img_url)
+
+                return imagens
             imagens = extrair_imagens_creditoreal(html, url)
 
             if not imagens:
@@ -353,11 +417,17 @@ class App(App):
             self.notify(f"Encontradas {len(imagens)} imagens")
             self.query_one("#progress").total = len(imagens)
 
+            headers_creditoreal = {
+                **headers,
+                "Referer": "https://www.creditoreal.com.br/",
+                "DNT": "1",
+            }
+
             for i, img_url in enumerate(imagens):
                 try:
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(
-                        img_url, headers=headers, timeout=10).content
+                        img_url, headers=headers_creditoreal, timeout=10).content
                     img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
