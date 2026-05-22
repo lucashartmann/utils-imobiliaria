@@ -13,3 +13,4 @@ test_images/
 test_logo_detector.py
 logo_detector.py
 test_chavesnamao_extracao.py
+test_multiimob_extracao.py
