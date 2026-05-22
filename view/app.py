@@ -13,7 +13,7 @@ from textual.worker import get_current_worker
 from textual.renderables.bar import Bar as BarRenderable
 from view.anuncio import Anuncio
 from utils.chavesnamao import extrair_imagens_chavesnamao
-from utils.multiimob import extrair_imagens_multiimob
+from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
 from utils.selecionar_arquivos import selecionar_arquivos
 
 
@@ -267,6 +267,12 @@ class App(App):
         soup = BeautifulSoup(html, "html.parser")
         os.makedirs(self.imagens_path, exist_ok=True)
 
+        if "urban.imb.br" in url:
+            html_renderizado = obter_html_renderizado_urban(url)
+            if html_renderizado:
+                html = html_renderizado
+                soup = BeautifulSoup(html, "html.parser")
+
         if "auxiliadorapredial" in url:
             pattern = r"https://img\.auxiliadorapredial\.com\.br/thumb/1920/[^\"']+\.jpg"
 
@@ -369,7 +375,8 @@ class App(App):
                                 for chave in ["src", "url", "imageUrl"]:
                                     valor = item.get(chave)
                                     if valor:
-                                        urls_galeria.append(_normalizar_src(valor))
+                                        urls_galeria.append(
+                                            _normalizar_src(valor))
                             elif isinstance(item, str):
                                 urls_galeria.append(_normalizar_src(item))
 
@@ -472,11 +479,11 @@ class App(App):
                 except Exception as e:
                     self.notify(f"Erro ao baixar: {e}")
 
-        elif "multiimob.com.br" in url:
+        elif "multiimob.com.br" in url or "urban.imb.br" in url:
             imagens = extrair_imagens_multiimob(html, url)
 
             if not imagens:
-                self.notify("Nenhuma imagem encontrada no Multiimob")
+                self.notify("Nenhuma imagem encontrada")
                 return
 
             self.notify(f"Encontradas {len(imagens)} imagens")
