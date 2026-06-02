@@ -1,5 +1,6 @@
 import json
 import re
+from uuid import uuid4
 from textual.app import App
 from textual_image.widget import Image
 from textual.widgets import Button, Static, Input, ListItem, ListView, ProgressBar, TabbedContent, TabPane, Tab, Tabs
@@ -14,6 +15,7 @@ from textual.renderables.bar import Bar as BarRenderable
 from view.anuncio import Anuncio
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
+from utils.zapimoveis import extrair_imagens_zapimoveis, obter_html_renderizado_zapimoveis
 from utils.selecionar_arquivos import selecionar_arquivos
 
 
@@ -91,10 +93,12 @@ class App(App):
 
         with Horizontal(id="header"):
             yield Static("Link do site:")
-            yield Input(placeholder="link aqui")
+            yield Input(placeholder="link aqui", id="input_link")
             yield Button("Extrair")
             yield Button("Remover Logo")
             yield Button("Abrir Diretório")
+            
+        yield Input(placeholder="nome da pasta", id="nome_pasta")
 
         yield ProgressBar(id="progress", total=100, show_percentage=True)
 
@@ -170,7 +174,7 @@ class App(App):
                     widget_imagem.remove()
 
             case "Extrair":
-                link = self.query_one(Input).value
+                link = self.query_one("#input_link").value
                 try:
                     worker = self.run_worker(
                         self.extracao(link),
@@ -180,7 +184,7 @@ class App(App):
                     )
                     # await worker.wait()
                     # await self.converter()
-                    self.query_one(Input).value = ""
+                    self.query_one("#input_link").value = ""
                 except Exception as e:
                     self.notify(f"Erro! {e}")
 
@@ -265,7 +269,12 @@ class App(App):
         response = requests.get(url, headers=headers)
         html = response.text
         soup = BeautifulSoup(html, "html.parser")
-        os.makedirs(self.imagens_path, exist_ok=True)
+        caminho = self.query_one("#nome_pasta").value.strip()
+        if caminho:
+            imagens_path = os.path.join(self.imagens_path, caminho)
+        else:
+            imagens_path = self.imagens_path
+        os.makedirs(imagens_path, exist_ok=True)
 
         if "urban.imb.br" in url:
             html_renderizado = obter_html_renderizado_urban(url)
@@ -288,7 +297,7 @@ class App(App):
                 try:
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(img_url, headers=headers).content
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
                     with open(img_path, "wb") as f:
                         f.write(img_data)
 
@@ -436,7 +445,7 @@ class App(App):
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(
                         img_url, headers=headers_creditoreal, timeout=10).content
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
                         f.write(img_data)
@@ -465,7 +474,7 @@ class App(App):
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(
                         img_url, headers=headers, timeout=10).content
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
                         f.write(img_data)
@@ -494,7 +503,7 @@ class App(App):
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(
                         img_url, headers=headers, timeout=10).content
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
                         f.write(img_data)
@@ -509,39 +518,55 @@ class App(App):
                     self.notify(f"Erro ao baixar: {e}")
 
         elif "zapimoveis" in url:
-            imgs = soup.find_all("img")
-            self.notify(f"Encontradas {len(imgs)} tags <img> na página.")
-            self.query_one("#progress").total = len(imgs)
-            for img in imgs:
-                srcset = img.get("srcset")
-                if srcset:
-                    parts = srcset.split(",")
-                    for part in parts:
-                        part = part.strip()
-                        if "1080w" in part:
-                            img_url = part.split(" ")[0]
-                            img_url = urljoin(url, img_url)
+            html_renderizado = obter_html_renderizado_zapimoveis(url)
+            if html_renderizado:
+                html = html_renderizado
+                soup = BeautifulSoup(html, "html.parser")
 
-                            filename = img_url.split("/")[-1].split("?")[0]
-                            save_path = os.path.join(
-                                self.imagens_path, filename)
+            imagens = extrair_imagens_zapimoveis(html, url)
 
-                            self.notify(f"Baixando {img_url} ...")
-                            try:
-                                img_data = requests.get(
-                                    img_url, headers=headers).content
-                                with open(save_path, "wb") as f:
-                                    f.write(img_data)
+            if not imagens:
+                self.notify("Nenhuma imagem encontrada no ZAP Imóveis")
+                return
 
-                                self.call_from_thread(
-                                    self._adicionar_imagem_na_ui,
-                                    save_path
-                                )
+            self.notify(f"Encontradas {len(imagens)} imagens")
+            self.query_one("#progress").total = len(imagens)
 
-                                self.query_one("#progress").advance(1)
-                            except Exception as e:
-                                self.notify(f"Erro ao baixar: {e}")
-                                continue
+            headers_zap = {
+                **headers,
+                "Referer": url,
+                "Origin": "https://www.zapimoveis.com.br",
+                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+            }
+
+            for i, img_url in enumerate(imagens):
+                try:
+                    self.notify(f"Baixando: {img_url}")
+                    resp = requests.get(img_url, headers=headers_zap, timeout=10)
+
+                    if resp.status_code != 200:
+                        self.notify(
+                            f"Erro ao baixar imagem: HTTP {resp.status_code}"
+                        )
+                        continue
+
+                   
+                    filename = f"img_{i}.jpg"
+
+                    save_path = os.path.join(imagens_path, filename)
+
+                    with open(save_path, "wb") as f:
+                        f.write(resp.content)
+
+                    self.call_from_thread(
+                        self._adicionar_imagem_na_ui,
+                        save_path
+                    )
+
+                    self.query_one("#progress").advance(1)
+                except Exception as e:
+                    self.notify(f"Erro ao baixar: {e}")
+                    continue
         elif "imobiliariazimmer" in url:
             match = re.search(r"/(\d+)/", url)
             if not match:
@@ -570,7 +595,7 @@ class App(App):
 
                     img_data = requests.get(img_url, headers=headers).content
 
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                     with open(img_path, "wb") as f:
                         f.write(img_data)
@@ -612,7 +637,7 @@ class App(App):
                 try:
                     self.notify(f"Baixando: {img_url}")
                     img_data = requests.get(img_url, headers=headers).content
-                    img_path = os.path.join(self.imagens_path, f"img_{i}.jpg")
+                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
                     with open(img_path, "wb") as f:
                         f.write(img_data)
 
@@ -675,7 +700,7 @@ class App(App):
 
                     nome_arquivo = f"img_{i}.jpg"
 
-                    img_path = os.path.join(self.imagens_path, nome_arquivo)
+                    img_path = os.path.join(imagens_path, nome_arquivo)
 
                     with open(img_path, "wb") as f:
                         f.write(resp.content)
@@ -723,7 +748,7 @@ class App(App):
                         continue
 
                     nome = f"img_{i}.jpg"
-                    caminho = f"{self.imagens_path}/{nome}"
+                    caminho = f"{imagens_path}/{nome}"
 
                     with open(caminho, "wb") as f:
                         f.write(resp.content)
@@ -796,7 +821,7 @@ class App(App):
 
                     if resp.status_code == 200:
                         img_path = os.path.join(
-                            self.imagens_path, f"img_{i}.jpg")
+                            imagens_path, f"img_{i}.jpg")
 
                         with open(img_path, "wb") as f:
                             f.write(resp.content)
@@ -837,12 +862,17 @@ class App(App):
         try:
             self.call_from_thread(self._resetar_progresso, etapas_total)
             self.call_from_thread(self.notify, "Iniciando remoção de logo...")
+            caminho = self.query_one("#nome_pasta").value.strip()
+            if caminho:
+                destino_path = os.path.join(self.destino_path, caminho)
+            else:
+                destino_path = self.destino_path
 
             cmd = [
                 "iopaint", "run",
                 "--image", self.imagens_path,
                 "--mask", mascara,
-                "--output", self.destino_path,
+                "--output", destino_path,
             ]
             self.call_from_thread(self.notify, f"Executando: {' '.join(cmd)}")
             self.call_from_thread(self._avancar_progresso, 1)
