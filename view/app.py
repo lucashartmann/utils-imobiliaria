@@ -97,7 +97,7 @@ class App(App):
             yield Button("Extrair")
             yield Button("Remover Logo")
             yield Button("Abrir Diretório")
-            
+
         yield Input(placeholder="nome da pasta", id="nome_pasta")
 
         yield ProgressBar(id="progress", total=100, show_percentage=True)
@@ -542,7 +542,8 @@ class App(App):
             for i, img_url in enumerate(imagens):
                 try:
                     self.notify(f"Baixando: {img_url}")
-                    resp = requests.get(img_url, headers=headers_zap, timeout=10)
+                    resp = requests.get(
+                        img_url, headers=headers_zap, timeout=10)
 
                     if resp.status_code != 200:
                         self.notify(
@@ -550,7 +551,6 @@ class App(App):
                         )
                         continue
 
-                   
                     filename = f"img_{i}.jpg"
 
                     save_path = os.path.join(imagens_path, filename)
@@ -862,52 +862,99 @@ class App(App):
         try:
             self.call_from_thread(self._resetar_progresso, etapas_total)
             self.call_from_thread(self.notify, "Iniciando remoção de logo...")
-            caminho = self.query_one("#nome_pasta").value.strip()
-            if caminho:
-                destino_path = os.path.join(self.destino_path, caminho)
-            else:
-                destino_path = self.destino_path
+            self.imagens_path = os.path.join(self.home, "Imagens")
+            self.destino_path = os.path.join(self.home, "Destino")
+            quant_pastas = len(os.listdir(self.imagens_path))
 
-            cmd = [
-                "iopaint", "run",
-                "--image", self.imagens_path,
-                "--mask", mascara,
-                "--output", destino_path,
-            ]
-            self.call_from_thread(self.notify, f"Executando: {' '.join(cmd)}")
-            self.call_from_thread(self._avancar_progresso, 1)
+            if (quant_pastas == 0):
 
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True
-            )
-            self.call_from_thread(self._avancar_progresso, 1)
-
-            stdout, stderr = process.communicate()
-            self.call_from_thread(self._avancar_progresso, 1)
-
-            if stdout and stdout.strip():
-                for linha in stdout.splitlines()[-3:]:
-                    self.call_from_thread(self.notify, f"iopaint: {linha}")
-
-            if stderr and stderr.strip():
-                for linha in stderr.splitlines()[-3:]:
-                    self.call_from_thread(
-                        self.notify, f"iopaint stderr: {linha}")
-
-            if process.returncode == 0:
+                cmd = [
+                    "iopaint", "run",
+                    "--image", self.imagens_path,
+                    "--mask", mascara,
+                    "--output", self.destino_path,
+                ]
                 self.call_from_thread(
-                    self.notify, "Remoção de logo concluída com sucesso")
-                self.call_from_thread(self.carregar_destino)
-            else:
-                self.call_from_thread(
-                    self.notify,
-                    f"Falha ao remover logo (código {process.returncode})"
+                    self.notify, f"Executando: {' '.join(cmd)}")
+                self.call_from_thread(self._avancar_progresso, 1)
+
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
                 )
+                self.call_from_thread(self._avancar_progresso, 1)
 
-            self.call_from_thread(self._avancar_progresso, 2)
+                stdout, stderr = process.communicate()
+                self.call_from_thread(self._avancar_progresso, 1)
+
+                if stdout and stdout.strip():
+                    for linha in stdout.splitlines()[-3:]:
+                        self.call_from_thread(self.notify, f"iopaint: {linha}")
+
+                if stderr and stderr.strip():
+                    for linha in stderr.splitlines()[-3:]:
+                        self.call_from_thread(
+                            self.notify, f"iopaint stderr: {linha}")
+
+                if process.returncode == 0:
+                    self.call_from_thread(
+                        self.notify, "Remoção de logo concluída com sucesso")
+                    self.call_from_thread(self.carregar_destino)
+                else:
+                    self.call_from_thread(
+                        self.notify,
+                        f"Falha ao remover logo (código {process.returncode})"
+                    )
+
+                self.call_from_thread(self._avancar_progresso, 2)
+            else:
+                for pasta in os.listdir(self.imagens_path):
+                    pasta_imagem = os.path.join(self.imagens_path, pasta)
+                    destino = os.path.join(self.destino_path, pasta)
+                    cmd = [
+                        "iopaint", "run",
+                        "--image", pasta_imagem,
+                        "--mask", mascara,
+                        "--output", destino,
+                    ]
+                    self.call_from_thread(
+                        self.notify, f"Executando: {' '.join(cmd)}")
+                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    process = subprocess.Popen(
+                        cmd,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    stdout, stderr = process.communicate()
+                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    if stdout and stdout.strip():
+                        for linha in stdout.splitlines()[-3:]:
+                            self.call_from_thread(
+                                self.notify, f"iopaint: {linha}")
+
+                    if stderr and stderr.strip():
+                        for linha in stderr.splitlines()[-3:]:
+                            self.call_from_thread(
+                                self.notify, f"iopaint stderr: {linha}")
+
+                    if process.returncode == 0:
+                        self.call_from_thread(
+                            self.notify, "Remoção de logo concluída com sucesso")
+                        self.call_from_thread(self.carregar_destino)
+                    else:
+                        self.call_from_thread(
+                            self.notify,
+                            f"Falha ao remover logo (código {process.returncode})"
+                        )
+
+                    self.call_from_thread(self._avancar_progresso, 2)
 
         except Exception as e:
             self.call_from_thread(self.notify, f"Erro na pintagem: {e}")
