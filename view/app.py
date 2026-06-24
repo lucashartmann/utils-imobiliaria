@@ -1,927 +1,1294 @@
-import json
-import re
 from uuid import uuid4
-from textual.app import App
-from textual_image.widget import Image
-from textual.widgets import Button, Static, Input, ListItem, ListView, ProgressBar, TabbedContent, TabPane, Tab, Tabs
-from textual.containers import Horizontal, Vertical, Center, Grid
-import subprocess
 import os
-import requests
-from bs4 import BeautifulSoup
 from urllib.parse import urljoin
-from textual.worker import get_current_worker
-from textual.renderables.bar import Bar as BarRenderable
 from view.anuncio import Anuncio
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
 from utils.zapimoveis import extrair_imagens_zapimoveis, obter_html_renderizado_zapimoveis
 from utils.selecionar_arquivos import selecionar_arquivos
+import re
+import json
+import requests
+from bs4 import BeautifulSoup
+import subprocess
+from tkinter import messagebox
+import shutil
+import threading
+import tkinter as tk
+from tkinter import ttk
+from PIL import Image, ImageTk
 
 
-class App(App):
-    CSS_PATH = ["css/base.tcss", "css/app.tcss"]
-
-    SCREENS = {
-        "anuncio": Anuncio
-    }
+class App:
 
     arquivos = [
         ("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")
     ]
 
-    BINDINGS = [
-        ("cntrl+q", "sair", "Sair"),
-    ]
-
-    def action_sair(self):
-        for worker in self.workers:
-            worker.stop()
-        self.exit()
-
     caminho_mascara_selecionada = ""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self.home = os.getcwd()
-        self.imagens_path = os.path.join(self.home, "Imagens")
-        if not os.path.isdir(self.imagens_path):
-            os.mkdir(self.imagens_path)
+    def __init__(self, root):
 
-        self.mascaras_path = os.path.join(self.home, "Mascáras")
-        if not os.path.isdir(self.mascaras_path):
-            os.mkdir(self.mascaras_path)
+        self.root = root
+        self.root.title("Removedor de Logos")
+
+        self.home = os.getcwd()
+
+        self.imagens_path = os.path.join(self.home, "Imagens")
+        os.makedirs(self.imagens_path, exist_ok=True)
+
+        self.mascaras_path = os.path.join(self.home, "Mascaras")
+        os.makedirs(self.mascaras_path, exist_ok=True)
 
         self.destino_path = os.path.join(self.home, "Destino")
-        if not os.path.isdir(self.destino_path):
-            os.mkdir(self.destino_path)
+        os.makedirs(self.destino_path, exist_ok=True)
 
-    def on_mount(self):
+        self.thumbnails = []
+
+        self.tabs = ttk.Notebook(root)
+        self.tabs.pack(fill="both", expand=True)
+
+        self.tab_imagens = tk.Frame(self.tabs)
+        self.tab_anuncio = tk.Frame(self.tabs)
+
+        self.tabs.add(self.tab_imagens, text="Imagens")
+        self.tabs.add(self.tab_anuncio, text="Anúncio")
+
+        self.tabs.bind(
+            "<<NotebookTabChanged>>",
+            self.on_tab_changed
+        )
+
+        header = tk.Frame(self.tab_imagens)
+        header.pack(fill="x", padx=5, pady=5)
+
+        tk.Label(
+            header,
+            text="Link do site:"
+        ).pack(side="left")
+
+        self.input_link = tk.Entry(header)
+
+        self.input_link.pack(
+            side="left",
+            fill="x",
+            expand=True,
+            padx=5
+        )
+
+        tk.Button(
+            header,
+            text="Extrair",
+            command=lambda: self.acao_botao("Extrair")
+        ).pack(side="left")
+
+        tk.Button(
+            header,
+            text="Remover Logo",
+            command=lambda: self.acao_botao("Remover Logo")
+        ).pack(side="left")
+
+        tk.Button(
+            header,
+            text="Abrir Diretório",
+            command=lambda: self.acao_botao("Abrir Diretório")
+        ).pack(side="left")
+
+        self.nome_pasta = tk.Entry(self.tab_imagens)
+
+        self.nome_pasta.pack(
+            fill="x",
+            padx=5,
+            pady=5
+        )
+
+        self.progress = ttk.Progressbar(
+            self.tab_imagens,
+            maximum=100
+        )
+
+        self.progress.pack(
+            fill="x",
+            padx=5,
+            pady=5
+        )
+
+        conteudo = tk.Frame(self.tab_imagens)
+
+        conteudo.pack(
+            fill="both",
+            expand=True
+        )
+
+        self.frame_antes = tk.LabelFrame(
+            conteudo,
+            text="Imagens"
+        )
+
+        self.frame_antes.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=5,
+            pady=5
+        )
+
+        self.grid_imagens_antes = tk.Frame(
+            self.frame_antes
+        )
+
+        self.grid_imagens_antes.pack(
+            fill="both",
+            expand=True
+        )
+
+        botoes_antes = tk.Frame(
+            self.frame_antes
+        )
+
+        botoes_antes.pack(
+            fill="x",
+            pady=5
+        )
+
+        tk.Button(
+            botoes_antes,
+            text="Escolher Imagens",
+            command=lambda: self.acao_botao(
+                "Escolher Imagens",
+                self.grid_imagens_antes
+            )
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            botoes_antes,
+            text="Limpar Imagens",
+            command=lambda: self.acao_botao(
+                "Limpar Imagens",
+                self.grid_imagens_antes
+            )
+        ).pack(side="left", padx=5)
+
+        self.frame_mascaras = tk.LabelFrame(
+            conteudo,
+            text="Máscaras"
+        )
+
+        self.frame_mascaras.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=5,
+            pady=5
+        )
+
+        self.lista_mascaras = tk.Listbox(
+            self.frame_mascaras
+        )
+
+        self.lista_mascaras.pack(
+            fill="both",
+            expand=True
+        )
+
+        self.lista_mascaras.bind(
+            "<<ListboxSelect>>",
+            self.selecionar_mascara
+        )
+
+        botoes_mascaras = tk.Frame(
+            self.frame_mascaras
+        )
+
+        botoes_mascaras.pack(
+            fill="x",
+            pady=5
+        )
+
+        tk.Button(
+            botoes_mascaras,
+            text="Escolher Imagens",
+            command=lambda: self.acao_botao(
+                "Escolher Imagens",
+                self.lista_mascaras
+            )
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            botoes_mascaras,
+            text="Atualizar Máscaras",
+            command=lambda: self.acao_botao(
+                "Atualizar Máscaras"
+            )
+        ).pack(side="left", padx=5)
+
+        self.frame_depois = tk.LabelFrame(
+            conteudo,
+            text="Resultado"
+        )
+
+        self.frame_depois.pack(
+            side="left",
+            fill="both",
+            expand=True,
+            padx=5,
+            pady=5
+        )
+
+        self.grid_imagens_depois = tk.Frame(
+            self.frame_depois
+        )
+
+        self.grid_imagens_depois.pack(
+            fill="both",
+            expand=True
+        )
+
+        botoes_depois = tk.Frame(
+            self.frame_depois
+        )
+
+        botoes_depois.pack(
+            fill="x",
+            pady=5
+        )
+
+        tk.Button(
+            botoes_depois,
+            text="Escolher Imagens",
+            command=lambda: self.acao_botao(
+                "Escolher Imagens",
+                self.grid_imagens_depois
+            )
+        ).pack(side="left", padx=5)
+
+        tk.Button(
+            botoes_depois,
+            text="Limpar Imagens",
+            command=lambda: self.acao_botao(
+                "Limpar Imagens",
+                self.grid_imagens_depois
+            )
+        ).pack(side="left", padx=5)
+
         self.carregar_imagens()
-        if len(os.listdir(self.mascaras_path)) > 0:
-            for caminho_imagem in os.listdir(self.mascaras_path):
-                if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
-                    self.query_one("#lv_mascaras").mount(ListItem(
-                        Image(f"{self.mascaras_path}\\{caminho_imagem}"), Static(caminho_imagem)))
-
+        self.carregar_mascaras()
         self.carregar_destino()
 
     def carregar_imagens(self):
-        if len(os.listdir(self.imagens_path)) > 0:
-            for caminho_imagem in os.listdir(self.imagens_path):
-                if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
-                    self.query_one("#grid_imagens_antes").mount(
-                        Image(f"{self.imagens_path}\\{caminho_imagem}"))
+
+        extensoes = (".jpg", ".jpeg", ".png")
+
+        for arquivo in os.listdir(self.imagens_path):
+
+            if arquivo.lower().endswith(extensoes):
+
+                caminho = os.path.join(
+                    self.imagens_path,
+                    arquivo
+                )
+
+                self.adicionar_imagem(
+                    self.frame_antes,
+                    caminho
+                )
+
+    def carregar_mascaras(self):
+
+        extensoes = (".jpg", ".jpeg", ".png")
+
+        self.lista_mascaras.delete(
+            0,
+            tk.END
+        )
+
+        for arquivo in os.listdir(self.mascaras_path):
+
+            if arquivo.lower().endswith(extensoes):
+
+                caminho = os.path.join(
+                    self.mascaras_path,
+                    arquivo
+                )
+
+                self.lista_mascaras.insert(
+                    tk.END,
+                    caminho
+                )
 
     def carregar_destino(self):
-        if len(os.listdir(self.destino_path)) > 0:
-            for caminho_imagem in os.listdir(self.destino_path):
-                if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
-                    self.query_one("#grid_imagens_depois").mount(
-                        Image(f"{self.destino_path}\\{caminho_imagem}"))
 
-    def on_screen_resume(self):
-        self.query_one(Tabs).active = self.query_one(
-            "#tab_imagens", Tab).id
+        extensoes = (".jpg", ".jpeg", ".png")
 
-    def on_tabs_tab_activated(self, event: Tabs.TabActivated):
-        if event.tabs.active == self.query_one("#tab_anuncio", Tab).id:
-            self.app.push_screen("anuncio")
+        for arquivo in os.listdir(self.destino_path):
 
-    def compose(self):
-        yield Tabs(Tab('Imagens', id="tab_imagens"), Tab("Anúncio", id="tab_anuncio"))
+            if arquivo.lower().endswith(extensoes):
 
-        with Horizontal(id="header"):
-            yield Static("Link do site:")
-            yield Input(placeholder="link aqui", id="input_link")
-            yield Button("Extrair")
-            yield Button("Remover Logo")
-            yield Button("Abrir Diretório")
+                caminho = os.path.join(
+                    self.destino_path,
+                    arquivo
+                )
 
-        yield Input(placeholder="nome da pasta", id="nome_pasta")
+                self.adicionar_imagem(
+                    self.frame_depois,
+                    caminho
+                )
 
-        yield ProgressBar(id="progress", total=100, show_percentage=True)
 
-        with Horizontal(id="conteudo"):
-            with Vertical(classes="imagens"):
-                # Imagens
-                yield Grid(id="grid_imagens_antes", classes="sub_imagens")
-                with Center():
-                    yield Button("Escolher Imagens")
-                    yield Button("Limpar Imagens")
-            with Vertical(classes="imagens"):
-                # Mascaras
-                yield ListView(id="lv_mascaras", classes="sub_imagens")
-                with Center():
-                    yield Button("Escolher Imagens")
-                    yield Button("Atualizar Máscaras")
-                    # yield Button("Limpar Imagens")
-            with Vertical(classes="imagens"):
-                # Imagens sem mascara
-                yield Grid(id="grid_imagens_depois", classes="sub_imagens")
-                with Center():
-                    yield Button("Escolher Imagens")
-                    yield Button("Limpar Imagens")
+    def adicionar_imagem(self, frame, caminho):
 
-    async def on_button_pressed(self, evento: Button.Pressed):
-        center = evento.button.parent
-        vertical = center.parent
-        primeiro_container = list(vertical.children)[0]
-        match evento.button.label:
+        try:
+
+            imagem = Image.open(caminho)
+
+            imagem.thumbnail((150, 150))
+
+            foto = ImageTk.PhotoImage(imagem)
+
+            self.thumbnails.append(foto)
+
+            label = tk.Label(
+                frame,
+                image=foto
+            )
+
+            label.image = foto
+
+            label.pack(
+                padx=5,
+                pady=5
+            )
+
+        except Exception as e:
+            print(e)
+
+    def selecionar_mascara(self, event):
+
+        selecionado = self.lista_mascaras.curselection()
+
+        if not selecionado:
+            return
+
+        indice = selecionado[0]
+
+        self.caminho_mascara_selecionada = (
+            self.lista_mascaras.get(indice)
+        )
+
+    def on_tab_changed(self, event):
+
+        indice = self.tabs.index(
+            self.tabs.select()
+        )
+
+        if indice == 1:
+            self.abrir_tela_anuncio()
+
+    def acao_botao(self, acao, container=None):
+
+        match acao:
 
             case "Atualizar Máscaras":
-                self.query_one("#lv_mascaras").clear()
-                if len(os.listdir(self.mascaras_path)) > 0:
-                    for caminho_imagem in os.listdir(self.mascaras_path):
-                        if caminho_imagem.split(".")[-1] in ["jpg", "jpeg", "png"]:
-                            self.query_one("#lv_mascaras").mount(ListItem(
-                                Image(f"{self.mascaras_path}\\{caminho_imagem}"), Static(caminho_imagem)))
+
+                self.lista_mascaras.delete(0, "end")
+
+                for arquivo in os.listdir(self.mascaras_path):
+
+                    if arquivo.lower().endswith((".jpg", ".jpeg", ".png")):
+
+                        caminho = os.path.join(
+                            self.mascaras_path,
+                            arquivo
+                        )
+
+                        self.lista_mascaras.insert(
+                            "end",
+                            caminho
+                        )
 
             case "Abrir Diretório":
+
                 os.startfile(self.home)
 
             case "Escolher Imagens":
+
                 imagens = selecionar_arquivos()
-                caminho = ""
-                match primeiro_container.id:
-                    case "grid_imagens_depois":
-                        caminho = self.destino_path
-                    case "lv_mascaras":
-                        caminho = self.mascaras_path
-                    case "grid_imagens_antes":
-                        caminho = self.imagens_path
+
+                if not imagens:
+                    return
+
+                if container == self.frame_antes:
+                    destino = self.imagens_path
+
+                elif container == self.frame_depois:
+                    destino = self.destino_path
+
+                elif container == self.lista_mascaras:
+                    destino = self.mascaras_path
+
+                else:
+                    return
 
                 for imagem in imagens:
+
                     try:
-                        primeiro_container.mount(Image(imagem))
-                        with open(imagem, "rb") as f:
-                            data = f.read()
-                        nome_arquivo = os.path.basename(imagem)
-                        with open(os.path.join(caminho, nome_arquivo), "wb") as f:
-                            f.write(data)
+
+                        nome = os.path.basename(imagem)
+
+                        shutil.copy2(
+                            imagem,
+                            os.path.join(destino, nome)
+                        )
+
+                        if container == self.lista_mascaras:
+
+                            self.lista_mascaras.insert(
+                                "end",
+                                os.path.join(destino, nome)
+                            )
+
+                        else:
+
+                            self.adicionar_imagem(
+                                container,
+                                imagem
+                            )
+
                     except Exception as e:
-                        self.notify(f"Erro ao copiar imagem: {e}")
-                        continue
+
+                        messagebox.showerror(
+                            "Erro",
+                            f"Erro ao copiar imagem: {e}"
+                        )
 
             case "Limpar Imagens":
+
                 try:
-                    primeiro_container.query_one(Image)
+
+                    destino = ""
+
+                    if container == self.frame_antes:
+                        destino = self.imagens_path
+
+                    elif container == self.frame_depois:
+                        destino = self.destino_path
+
+                    else:
+                        return
+
+                    for widget in container.winfo_children():
+                        widget.destroy()
+
+                    for arquivo in os.listdir(destino):
+
+                        caminho = os.path.join(
+                            destino,
+                            arquivo
+                        )
+
+                        if os.path.isfile(caminho):
+                            os.remove(caminho)
+
                 except Exception as e:
-                    self.notify(f"Erro ao limpar imagens: {e}")
-                    return
-                for widget_imagem in primeiro_container.query(Image):
-                    os.remove(widget_imagem.image)
-                    widget_imagem.remove()
+
+                    messagebox.showerror(
+                        "Erro",
+                        str(e)
+                    )
 
             case "Extrair":
-                link = self.query_one("#input_link").value
+
+                link = self.input_link.get().strip()
+
                 try:
-                    worker = self.run_worker(
-                        self.extracao(link),
-                        name="Extraindo imagens",
-                        thread=True,
-                        exclusive=True,
+
+                    threading.Thread(
+                        target=self.extracao,
+                        args=(link,),
+                        daemon=True
+                    ).start()
+
+                    self.input_link.delete(
+                        0,
+                        "end"
                     )
-                    # await worker.wait()
-                    # await self.converter()
-                    self.query_one("#input_link").value = ""
+
                 except Exception as e:
-                    self.notify(f"Erro! {e}")
+
+                    messagebox.showerror(
+                        "Erro",
+                        str(e)
+                    )
 
             case "Remover Logo":
+
                 try:
-                    if self.caminho_mascara_selecionada:
-                        self.run_worker(
-                            lambda: self.pintagem(
-                                self.caminho_mascara_selecionada),
-                            name="Removendo logo",
-                            thread=True,
-                            exclusive=True,
+
+                    if not self.caminho_mascara_selecionada:
+
+                        messagebox.showwarning(
+                            "Aviso",
+                            "Selecione uma máscara"
                         )
-                    else:
-                        self.notify("Selecione uma máscara")
-                except Exception as e:
-                    self.notify(f"Erro! {e}")
 
-    def on_list_view_selected(self, evento: ListView.Selected):
-        list_item = evento.item
-        caminho = list_item.query_one(Image).image
-        self.caminho_mascara_selecionada = caminho
-
-    # def gerar_mascara(caminho_image, caminho_saida="mask.png"):
-    #     try:
-    #         prompt = """
-    #         Identifique a logo na imagem.
-    #         Retorne apenas um JSON no formato:
-    #         {"x": int, "y": int, "width": int, "height": int}
-    #         Não escreva mais nada além do JSON.
-    #         """
-
-    #         resposta = ollama.chat(
-    #             model="llava:7b",
-    #             messages=[
-    #                 {
-    #                     "role": "user",
-    #                     "content": prompt,
-    #                     "images": [caminho_image]
-    #                 }
-    #             ]
-    #         )
-
-    #         texto = resposta.message.content.strip()
-    #         if texto.startswith("```"):
-    #             texto = texto.split("```")[1]
-    #         if texto.startswith("json"):
-    #             texto = texto.split("json")[1]
-
-    #         if "{" in texto:
-    #             texto = texto.split("{")[1]
-    #         texto = "{" + texto.strip()
-    #         self.notify(texto)
-
-    #         dados = json.loads(texto)
-
-    #         x = 0.417
-    #         y = 0.698
-    #         w = 0.583
-    #         h = 0.295
-
-    #         imagem = cv2.imread(caminho_image)
-    #         altura, largura = imagem.shape[:2]
-
-    #         mascara = np.zeros((altura, largura), dtype=np.uint8)
-    #         mascara[y:y+h, x:x+w] = 255
-
-    #         cv2.imwrite(caminho_saida, mascara)
-
-    #         return caminho_saida
-
-    #     except Exception as e:
-    #         self.notify(f"ERRO! gerar_mascara {e}")
-    #         return None
-
-    async def extracao(self, url):
-        self.query_one("#progress").total = 0
-        worker = get_current_worker()
-        headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
-        }
-        response = requests.get(url, headers=headers)
-        html = response.text
-        soup = BeautifulSoup(html, "html.parser")
-        caminho = self.query_one("#nome_pasta").value.strip()
-        if caminho:
-            imagens_path = os.path.join(self.imagens_path, caminho)
-        else:
-            imagens_path = self.imagens_path
-        os.makedirs(imagens_path, exist_ok=True)
-
-        if "urban.imb.br" in url:
-            html_renderizado = obter_html_renderizado_urban(url)
-            if html_renderizado:
-                html = html_renderizado
-                soup = BeautifulSoup(html, "html.parser")
-
-        if "auxiliadorapredial" in url:
-            pattern = r"https://img\.auxiliadorapredial\.com\.br/thumb/1920/[^\"']+\.jpg"
-
-            imagens = re.findall(pattern, html)
-
-            imagens = list(set(imagens))
-
-            self.query_one("#progress").total = len(imagens)
-
-            self.notify(f"Encontradas {len(imagens)} imagens 1920px")
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(img_url, headers=headers).content
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        f"img_{i}.jpg"
-                    )
-
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro: {e}")
-
-        elif "creditoreal" in url:
-            def extrair_imagens_creditoreal(html, url):
-                from bs4 import BeautifulSoup
-                import re
-
-                soup = BeautifulSoup(html, 'html.parser')
-                imagens = []
-
-                def _normalizar_src(src: str) -> str:
-                    src = src.strip().replace("\\/", "/")
-                    if src.startswith('//'):
-                        src = 'https:' + src
-                    elif src.startswith('/'):
-                        src = urljoin(url, src)
-                    return src
-
-                def _eh_url_imagem_valida(src: str) -> bool:
-                    src_lower = src.lower()
-                    if not any(ext in src_lower for ext in ['.jpg', '.jpeg', '.png', '.webp']):
-                        return False
-                    if 'storage.googleapis.com/snapproperty_imgs/creditoreal/' in src_lower:
-                        return True
-                    return any(chave in src_lower for chave in ['imovel', 'galeria', 'foto'])
-
-                def _adicionar_src(src: str):
-                    if not src:
                         return
-                    src_normalizado = _normalizar_src(src)
-                    if _eh_url_imagem_valida(src_normalizado) and src_normalizado not in imagens:
-                        imagens.append(src_normalizado)
 
-                def _extrair_base_e_tamanho(src: str):
-                    nome = os.path.basename(src.split("?", 1)[0])
-                    match = re.match(
-                        r"^(?P<base>.+?)(?:_(?P<tamanho>\d+))?\.(?:jpe?g|png|webp)$",
-                        nome,
-                        flags=re.IGNORECASE,
-                    )
-                    if not match:
-                        return nome, 0
-
-                    base = match.group("base")
-                    tamanho = int(match.group("tamanho") or 0)
-                    return base, tamanho
-
-                def _selecionar_melhor_qualidade(urls: list[str]) -> list[str]:
-                    melhores: dict[str, tuple[int, str]] = {}
-
-                    for src in urls:
-                        base, tamanho = _extrair_base_e_tamanho(src)
-                        atual = melhores.get(base)
-
-                        if atual is None or tamanho > atual[0]:
-                            melhores[base] = (tamanho, src)
-
-                    return [item[1] for item in melhores.values()]
-
-                script_next_data = soup.find("script", id="__NEXT_DATA__")
-                if script_next_data and script_next_data.string:
-                    try:
-                        dados = json.loads(script_next_data.string)
-                        imagens_imovel = (
-                            dados.get("props", {})
-                            .get("pageProps", {})
-                            .get("imovel", {})
-                            .get("images", [])
-                        )
-
-                        urls_galeria = []
-                        for item in imagens_imovel:
-                            if isinstance(item, dict):
-                                for chave in ["src", "url", "imageUrl"]:
-                                    valor = item.get(chave)
-                                    if valor:
-                                        urls_galeria.append(
-                                            _normalizar_src(valor))
-                            elif isinstance(item, str):
-                                urls_galeria.append(_normalizar_src(item))
-
-                        urls_validas = [
-                            src for src in urls_galeria if _eh_url_imagem_valida(src)
-                        ]
-
-                        if urls_validas:
-                            return _selecionar_melhor_qualidade(urls_validas)
-                    except Exception:
-                        pass
-
-                for item in soup.select('[aria-label="Zoom na imagem"] img, [role="button"][aria-label="Zoom na imagem"] img'):
-                    _adicionar_src(item.get('src'))
-                    _adicionar_src(item.get('data-src'))
-
-                if imagens:
-                    return imagens
-
-                for img in soup.find_all('img'):
-                    for atributo in ['src', 'data-src', 'data-lazy', 'data-original']:
-                        _adicionar_src(img.get(atributo))
-
-                    srcset = img.get('srcset')
-                    if srcset:
-                        for parte in srcset.split(','):
-                            _adicionar_src(parte.strip().split(' ')[0])
-
-                if len(imagens) < 3:
-                    padrao_storage = r'https?://storage\.googleapis\.com/snapproperty_imgs/creditoreal/[^"\'\s>]+?\.(?:jpe?g|png|webp)(?:\?[^"\'\s>]*)?'
-                    for img_url in re.findall(padrao_storage, html, flags=re.IGNORECASE):
-                        _adicionar_src(img_url)
-
-                    # Captura URLs de imagem que aparecem em blocos JSON/scripts.
-                    padrao_json = r'https?:\\?/\\?/storage\.googleapis\.com\\?/snapproperty_imgs\\?/creditoreal\\?/[^"\'\s>]+?\.(?:jpe?g|png|webp)(?:\\?[^"\'\s>]*)?'
-                    for img_url in re.findall(padrao_json, html, flags=re.IGNORECASE):
-                        _adicionar_src(img_url)
-
-                return imagens
-            imagens = extrair_imagens_creditoreal(html, url)
-
-            if not imagens:
-                self.notify("Nenhuma imagem encontrada no Crédito Real")
-                return
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-            self.query_one("#progress").total = len(imagens)
-
-            headers_creditoreal = {
-                **headers,
-                "Referer": "https://www.creditoreal.com.br/",
-                "DNT": "1",
-            }
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(
-                        img_url, headers=headers_creditoreal, timeout=10).content
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
-                    )
-
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro ao baixar: {e}")
-
-        elif "chavesnamao" in url:
-            imagens = extrair_imagens_chavesnamao(html, url)
-
-            if not imagens:
-                self.notify("Nenhuma imagem encontrada no Chaves na Mão")
-                return
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-            self.query_one("#progress").total = len(imagens)
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(
-                        img_url, headers=headers, timeout=10).content
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
-                    )
-
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro ao baixar: {e}")
-
-        elif "multiimob.com.br" in url or "urban.imb.br" in url:
-            imagens = extrair_imagens_multiimob(html, url)
-
-            if not imagens:
-                self.notify("Nenhuma imagem encontrada")
-                return
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-            self.query_one("#progress").total = len(imagens)
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(
-                        img_url, headers=headers, timeout=10).content
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
-                    )
-
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro ao baixar: {e}")
-
-        elif "zapimoveis" in url:
-            html_renderizado = obter_html_renderizado_zapimoveis(url)
-            if html_renderizado:
-                html = html_renderizado
-                soup = BeautifulSoup(html, "html.parser")
-
-            imagens = extrair_imagens_zapimoveis(html, url)
-
-            if not imagens:
-                self.notify("Nenhuma imagem encontrada no ZAP Imóveis")
-                return
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-            self.query_one("#progress").total = len(imagens)
-
-            headers_zap = {
-                **headers,
-                "Referer": url,
-                "Origin": "https://www.zapimoveis.com.br",
-                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-            }
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    resp = requests.get(
-                        img_url, headers=headers_zap, timeout=10)
-
-                    if resp.status_code != 200:
-                        self.notify(
-                            f"Erro ao baixar imagem: HTTP {resp.status_code}"
-                        )
-                        continue
-
-                    filename = f"img_{i}.jpg"
-
-                    save_path = os.path.join(imagens_path, filename)
-
-                    with open(save_path, "wb") as f:
-                        f.write(resp.content)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        save_path
-                    )
-
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro ao baixar: {e}")
-                    continue
-        elif "imobiliariazimmer" in url:
-            match = re.search(r"/(\d+)/", url)
-            if not match:
-                self.notify("ID do imóvel não encontrado")
-                return
-
-            imovel_id = match.group(1)
-
-            api = f"https://imobiliariazimmer.com.br/Services/RealEstate/JSONP/List.aspx?mode=realty&nt=2&ri={imovel_id}"
-
-            resp = requests.get(api, headers=headers)
-            data = resp.text
-
-            pattern = r"https://inetsoft\.imobiliariazimmer\.com\.br/Fotos/[^\"]+\.jpg"
-            imagens = re.findall(pattern, data)
-
-            imagens = list(set(imagens))
-
-            self.query_one("#progress").total = len(imagens)
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-
-                    img_data = requests.get(img_url, headers=headers).content
-
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
-                    )
-
-                    self.query_one("#progress").advance(1)
+                    threading.Thread(
+                        target=self.pintagem,
+                        args=(self.caminho_mascara_selecionada,),
+                        daemon=True
+                    ).start()
 
                 except Exception as e:
-                    self.notify(f"Erro: {e}")
 
-        elif 'veronezimoveis.com.br' in url:
-            id_match = re.search(r"/imovel/(\d+)/", url)
-            if not id_match:
-                self.notify("ID do imóvel não encontrado")
-                return
-
-            imovel_id = id_match.group(1)
-
-            imagens = list(dict.fromkeys(
-                re.findall(
-                    r"https://www\.veronezimoveis\.com\.br/media/imoveis/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
-                    html,
-                    flags=re.IGNORECASE,
-                )
-            ))
-
-            if not imagens:
-                self.notify("Nenhuma imagem encontrada na página")
-                return
-
-            imagens = list(set(imagens))
-            self.notify(f"Encontradas {len(imagens)} imagens")
-            self.query_one("#progress").total = len(imagens)
-            for i, img_url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {img_url}")
-                    img_data = requests.get(img_url, headers=headers).content
-                    img_path = os.path.join(imagens_path, f"img_{i}.jpg")
-                    with open(img_path, "wb") as f:
-                        f.write(img_data)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
+                    messagebox.showerror(
+                        "Erro",
+                        str(e)
                     )
 
-                    self.query_one("#progress").advance(1)
-                except Exception as e:
-                    self.notify(f"Erro ao baixar: {e}")
-                    continue
+    def selecionar_mascara(self, event):
 
-        elif "quintoandar.com.br" in url:
+        selecionado = self.lista_mascaras.curselection()
 
-            id_match = re.search(r"/imovel/(\d+)/", url)
-            if not id_match:
-                self.notify("ID do imóvel não encontrado")
-                return
+        if not selecionado:
+            return
 
-            imovel_id = id_match.group(1)
+        indice = selecionado[0]
 
-            api_url = f"https://www.quintoandar.com.br/property/{imovel_id}/photos?variant=0"
+        self.caminho_mascara_selecionada = \
+            self.lista_mascaras.get(indice)
+    
+    def extracao(self, url):
+
+        def tarefa():
+
+            self.root.after(0, lambda: self.resetar_progresso(0))
 
             headers = {
-                "User-Agent": "Mozilla/5.0",
-                "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
-                "Referer": f"https://www.quintoandar.com.br/imovel/{imovel_id}",
-                "Origin": "https://www.quintoandar.com.br"
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
             }
 
-            resp = requests.get(api_url, headers=headers)
-            data = resp.json()
-
-            imagens = []
-
-            for foto in data:
-                if isinstance(foto, dict):
-                    url_img = foto.get("url") or foto.get(
-                        "imageUrl") or foto.get("src")
-
-                    if url_img:
-                        if url_img.startswith("/"):
-                            url_img = "https://www.quintoandar.com.br" + url_img
-                        elif not url_img.startswith("http"):
-                            url_img = "https://www.quintoandar.com.br/img/" + url_img
-                        imagens.append(url_img)
-
-            imagens = list(dict.fromkeys(imagens))
-
-            self.notify(f"{len(imagens)} imagens encontradas")
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    resp = requests.get(img_url, headers=headers, timeout=10)
-
-                    if resp.status_code != 200:
-                        self.notify(f"Erro {resp.status_code}: {img_url}")
-                        continue
-
-                    nome_arquivo = f"img_{i}.jpg"
-
-                    img_path = os.path.join(imagens_path, nome_arquivo)
-
-                    with open(img_path, "wb") as f:
-                        f.write(resp.content)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        img_path
-                    )
-
-                    self.query_one("#progress").advance(1)
-
-                except Exception as e:
-                    self.notify(f"Erro ao baixar {img_url}: {e}")
-
-        elif "guarida.com.br" in url:
-            imovel_id_match = re.search(r"/(\d+)(?:\?|$)", url)
-            if not imovel_id_match:
-                self.notify("ID do imóvel não encontrado")
-                return
-
-            imovel_id = imovel_id_match.group(1)
-
-            resp = requests.get(url, headers=headers)
-            html = resp.text
-
-            imagens_brutas = re.findall(
-                rf"https:(?:\\/|/)(?:\\/|/)cdn\.imoview\.com\.br(?:\\/|/)guarida(?:\\/|/)Imoveis(?:\\/|/){imovel_id}(?:\\/|/)[^\"'\s]+?\.(?:jpe?g|png|webp)(?:\?[^\"'\s]*)?",
-                html,
-                flags=re.IGNORECASE,
-            )
-            imagens = list(dict.fromkeys(
-                img.replace("\\/", "/").replace("\\u0026", "&")
-                for img in imagens_brutas
-            ))
-
-            self.notify(f"Encontradas {len(imagens)} imagens")
-
-            self.query_one("#progress").total = len(imagens)
-
-            for i, img_url in enumerate(imagens):
-                try:
-                    resp = requests.get(img_url, headers=headers, timeout=10)
-
-                    if resp.status_code != 200:
-                        continue
-
-                    nome = f"img_{i}.jpg"
-                    caminho = f"{imagens_path}/{nome}"
-
-                    with open(caminho, "wb") as f:
-                        f.write(resp.content)
-
-                    self.call_from_thread(
-                        self._adicionar_imagem_na_ui,
-                        caminho
-                    )
-
-                    self.query_one("#progress").advance(1)
-
-                except Exception as e:
-                    self.notify(f"Erro: {e}")
-
-        elif "foxterciaimobiliaria.com.br" in url:
-            def _foxter_url_alta_resolucao(img_url: str) -> str:
-                if img_url.startswith("http"):
-                    if "/foxter/wm/" in img_url:
-                        caminho = img_url.split("/foxter/wm/", 1)[1]
-                        return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{caminho}"
-
-                    return (
-                        re.sub(r"/outer/\d+/", "/outer/1920/", img_url, count=1)
-                        .replace("https://images.foxter.com.br", "https://blob.foxter.com.br")
-                    )
-
-                return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{img_url.lstrip('/')}"
-
-            imagens = []
             try:
-                dados_next = json.loads(
-                    re.search(
-                        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
-                        html,
-                    ).group(1)
-                )
-                produto = dados_next["props"]["pageProps"]["product"]
-                imagens_data = produto.get("images", {}).get("data", [])
 
-                imagens = [
-                    _foxter_url_alta_resolucao(item["etag"])
-                    for item in imagens_data
-                    if item.get("etag")
-                ]
-            except Exception:
-                pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
-                imagens_brutas = list(dict.fromkeys(re.findall(pattern, html)))
-                imagens = [
-                    _foxter_url_alta_resolucao(img_url)
-                    for img_url in imagens_brutas
-                ]
+                response = requests.get(url, headers=headers)
+                html = response.text
 
-            self.notify(f"Encontradas {len(imagens)} imagens")
+                soup = BeautifulSoup(html, "html.parser")
 
-            headers_img = {
-                "User-Agent": headers["User-Agent"],
-                "Referer": "https://www.foxterciaimobiliaria.com.br/"
-            }
+                nome_pasta = self.nome_pasta.get().strip()
 
-            self.query_one("#progress").total = len(imagens)
+                if nome_pasta:
+                    imagens_path = os.path.join(self.imagens_path, nome_pasta)
+                else:
+                    imagens_path = self.imagens_path
 
-            for i, url in enumerate(imagens):
-                try:
-                    self.notify(f"Baixando: {url}")
+                os.makedirs(imagens_path, exist_ok=True)
 
-                    # if worker.is_cancelled:
-                    #     return
+                if "urban.imb.br" in url:
 
-                    resp = requests.get(url, headers=headers_img, timeout=10)
+                    html_renderizado = obter_html_renderizado_urban(url)
 
-                    if resp.status_code == 200:
-                        img_path = os.path.join(
-                            imagens_path, f"img_{i}.jpg")
+                    if html_renderizado:
+                        html = html_renderizado
+                        soup = BeautifulSoup(html, "html.parser")
 
-                        with open(img_path, "wb") as f:
-                            f.write(resp.content)
+                imagens = []
 
-                        self.call_from_thread(
-                            self._adicionar_imagem_na_ui,
-                            img_path
+                if "auxiliadorapredial" in url:
+
+                    pattern = r"https://img\.auxiliadorapredial\.com\.br/thumb/1920/[^\"']+\.jpg"
+
+                    imagens = list(set(re.findall(pattern, html)))
+
+                    total = len(imagens)
+
+                    self.root.after(0, lambda: self.resetar_progresso(total))
+
+                    for i, img_url in enumerate(imagens):
+
+                        try:
+
+                            self.root.after(
+                                0,
+                                lambda u=img_url: print(f"Baixando: {u}")
+                            )
+
+                            img_data = requests.get(img_url, headers=headers).content
+
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+
+                        except Exception as e:
+
+                            self.root.after(
+                                0,
+                                lambda err=e: print(f"Erro: {err}")
+                            )
+
+                elif "creditoreal" in url:
+            
+                    def extrair_creditoreal(self, html, url):
+
+                        soup = BeautifulSoup(html, "html.parser")
+                        imagens = []
+
+                        def normalizar(src: str) -> str:
+
+                            src = src.strip().replace("\\/", "/")
+
+                            if src.startswith("//"):
+                                src = "https:" + src
+
+                            elif src.startswith("/"):
+                                src = urljoin(url, src)
+
+                            return src
+
+                        def valida(src: str) -> bool:
+
+                            src_lower = src.lower()
+
+                            if not any(ext in src_lower for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+                                return False
+
+                            if "storage.googleapis.com/snapproperty_imgs/creditoreal/" in src_lower:
+                                return True
+
+                            return any(k in src_lower for k in ["imovel", "galeria", "foto"])
+
+                        def adicionar(src: str):
+
+                            if not src:
+                                return
+
+                            src = normalizar(src)
+
+                            if valida(src) and src not in imagens:
+                                imagens.append(src)
+
+                        def extrair_base(src: str):
+
+                            nome = os.path.basename(src.split("?", 1)[0])
+
+                            match = re.match(
+                                r"^(?P<base>.+?)(?:_(?P<tamanho>\d+))?\.(?:jpe?g|png|webp)$",
+                                nome,
+                                flags=re.IGNORECASE,
+                            )
+
+                            if not match:
+                                return nome, 0
+
+                            return match.group("base"), int(match.group("tamanho") or 0)
+
+                        def melhores(urls):
+
+                            melhores_dict = {}
+
+                            for u in urls:
+
+                                base, tamanho = extrair_base(u)
+
+                                atual = melhores_dict.get(base)
+
+                                if atual is None or tamanho > atual[0]:
+                                    melhores_dict[base] = (tamanho, u)
+
+                            return [v[1] for v in melhores_dict.values()]
+
+                        script = soup.find("script", id="__NEXT_DATA__")
+
+                        if script and script.string:
+
+                            try:
+
+                                dados = json.loads(script.string)
+
+                                imgs = (
+                                    dados.get("props", {})
+                                    .get("pageProps", {})
+                                    .get("imovel", {})
+                                    .get("images", [])
+                                )
+
+                                urls = []
+
+                                for item in imgs:
+
+                                    if isinstance(item, dict):
+
+                                        for k in ["src", "url", "imageUrl"]:
+
+                                            if item.get(k):
+                                                urls.append(normalizar(item[k]))
+
+                                    elif isinstance(item, str):
+                                        urls.append(normalizar(item))
+
+                                urls_validas = [u for u in urls if valida(u)]
+
+                                if urls_validas:
+                                    return melhores(urls_validas)
+
+                            except Exception:
+                                pass
+
+                        for img in soup.select('[aria-label="Zoom na imagem"] img'):
+                            adicionar(img.get("src"))
+                            adicionar(img.get("data-src"))
+
+                        for img in soup.find_all("img"):
+
+                            for attr in ["src", "data-src", "data-lazy", "data-original"]:
+                                adicionar(img.get(attr))
+
+                            if img.get("srcset"):
+
+                                for parte in img.get("srcset").split(","):
+                                    adicionar(parte.strip().split(" ")[0])
+
+                        if len(imagens) < 3:
+
+                            padrao = r'https?://storage\.googleapis\.com/snapproperty_imgs/creditoreal/[^"\s>]+?\.(?:jpe?g|png|webp)(?:\?[^"\s>]*)?'
+
+                            imagens.extend(re.findall(padrao, html, flags=re.IGNORECASE))
+
+                        return imagens
+                    imagens = extrair_creditoreal(html, url)
+
+                    total = len(imagens)
+
+                    self.root.after(0, lambda: self.resetar_progresso(total))
+
+                    for i, img_url in enumerate(imagens):
+
+                        try:
+
+                            print(f"Baixando: {img_url}")
+
+                            img_data = requests.get(
+                                img_url,
+                                headers=headers,
+                                timeout=10
+                            ).content
+
+                            img_path = os.path.join(
+                                imagens_path,
+                                f"img_{i}.jpg"
+                            )
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+
+                        except Exception as e:
+
+                            print(f"Erro ao baixar: {e}")
+
+                elif "chavesnamao" in url:
+                    imagens = extrair_imagens_chavesnamao(html, url)
+
+                    if not imagens:
+                        print("Nenhuma imagem encontrada no Chaves na Mão")
+                        return
+
+                    print(f"Encontradas {len(imagens)} imagens")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {img_url}")
+                            img_data = requests.get(
+                                img_url, headers=headers, timeout=10).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+                        except Exception as e:
+                            print(f"Erro ao baixar: {e}")
+
+                elif "multiimob.com.br" in url or "urban.imb.br" in url:
+                    imagens = extrair_imagens_multiimob(html, url)
+
+                    if not imagens:
+                        print("Nenhuma imagem encontrada")
+                        return
+
+                    print(f"Encontradas {len(imagens)} imagens")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {img_url}")
+                            img_data = requests.get(
+                                img_url, headers=headers, timeout=10).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+                        except Exception as e:
+                            print(f"Erro ao baixar: {e}")
+
+                elif "zapimoveis" in url:
+                    html_renderizado = obter_html_renderizado_zapimoveis(url)
+                    if html_renderizado:
+                        html = html_renderizado
+                        soup = BeautifulSoup(html, "html.parser")
+
+                    imagens = extrair_imagens_zapimoveis(html, url)
+
+                    if not imagens:
+                        print("Nenhuma imagem encontrada no ZAP Imóveis")
+                        return
+
+                    print(f"Encontradas {len(imagens)} imagens")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    headers_zap = {
+                        **headers,
+                        "Referer": url,
+                        "Origin": "https://www.zapimoveis.com.br",
+                        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                    }
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {img_url}")
+                            resp = requests.get(
+                                img_url, headers=headers_zap, timeout=10)
+
+                            if resp.status_code != 200:
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code}"
+                                )
+                                continue
+
+                            filename = f"img_{i}.jpg"
+
+                            save_path = os.path.join(imagens_path, filename)
+
+                            with open(save_path, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0,
+                                lambda p=save_path: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+                        except Exception as e:
+                            print(f"Erro ao baixar: {e}")
+                            continue
+                elif "imobiliariazimmer" in url:
+                    match = re.search(r"/(\d+)/", url)
+                    if not match:
+                        print("ID do imóvel não encontrado")
+                        return
+
+                    imovel_id = match.group(1)
+
+                    api = f"https://imobiliariazimmer.com.br/Services/RealEstate/JSONP/List.aspx?mode=realty&nt=2&ri={imovel_id}"
+
+                    resp = requests.get(api, headers=headers)
+                    data = resp.text
+
+                    pattern = r"https://inetsoft\.imobiliariazimmer\.com\.br/Fotos/[^\"]+\.jpg"
+                    imagens = re.findall(pattern, data)
+
+                    imagens = list(set(imagens))
+
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    print(f"Encontradas {len(imagens)} imagens")
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {img_url}")
+
+                            img_data = requests.get(img_url, headers=headers).content
+
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+
+                        except Exception as e:
+                            print(f"Erro: {e}")
+
+                elif 'veronezimoveis.com.br' in url:
+                    id_match = re.search(r"/imovel/(\d+)/", url)
+                    if not id_match:
+                        print("ID do imóvel não encontrado")
+                        return
+
+                    imovel_id = id_match.group(1)
+
+                    imagens = list(dict.fromkeys(
+                        re.findall(
+                            r"https://www\.veronezimoveis\.com\.br/media/imoveis/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
+                            html,
+                            flags=re.IGNORECASE,
                         )
+                    ))
 
-                        self.query_one("#progress").advance(1)
+                    if not imagens:
+                        print("Nenhuma imagem encontrada na página")
+                        return
 
-                    else:
-                        self.notify(
-                            f"Erro ao baixar imagem: HTTP {resp.status_code}")
+                    imagens = list(set(imagens))
+                    print(f"Encontradas {len(imagens)} imagens")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {img_url}")
+                            img_data = requests.get(img_url, headers=headers).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
 
-                except Exception as e:
-                    self.notify(f"Erro ao baixar imagem: {e}")
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                            )
 
-    def _adicionar_imagem_na_ui(self, caminho_imagem: str):
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+                        except Exception as e:
+                            print(f"Erro ao baixar: {e}")
+                            continue
+
+                elif "quintoandar.com.br" in url:
+
+                    id_match = re.search(r"/imovel/(\d+)/", url)
+                    if not id_match:
+                        print("ID do imóvel não encontrado")
+                        return
+
+                    imovel_id = id_match.group(1)
+
+                    api_url = f"https://www.quintoandar.com.br/property/{imovel_id}/photos?variant=0"
+
+                    headers = {
+                        "User-Agent": "Mozilla/5.0",
+                        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                        "Referer": f"https://www.quintoandar.com.br/imovel/{imovel_id}",
+                        "Origin": "https://www.quintoandar.com.br"
+                    }
+
+                    resp = requests.get(api_url, headers=headers)
+                    data = resp.json()
+
+                    imagens = []
+
+                    for foto in data:
+                        if isinstance(foto, dict):
+                            url_img = foto.get("url") or foto.get(
+                                "imageUrl") or foto.get("src")
+
+                            if url_img:
+                                if url_img.startswith("/"):
+                                    url_img = "https://www.quintoandar.com.br" + url_img
+                                elif not url_img.startswith("http"):
+                                    url_img = "https://www.quintoandar.com.br/img/" + url_img
+                                imagens.append(url_img)
+
+                    imagens = list(dict.fromkeys(imagens))
+
+                    print(f"{len(imagens)} imagens encontradas")
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            resp = requests.get(img_url, headers=headers, timeout=10)
+
+                            if resp.status_code != 200:
+                                print(f"Erro {resp.status_code}: {img_url}")
+                                continue
+
+                            nome_arquivo = f"img_{i}.jpg"
+
+                            img_path = os.path.join(imagens_path, nome_arquivo)
+
+                            with open(img_path, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0,
+                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+
+                        except Exception as e:
+                            print(f"Erro ao baixar {img_url}: {e}")
+
+                elif "guarida.com.br" in url:
+                    imovel_id_match = re.search(r"/(\d+)(?:\?|$)", url)
+                    if not imovel_id_match:
+                        print("ID do imóvel não encontrado")
+                        return
+
+                    imovel_id = imovel_id_match.group(1)
+
+                    resp = requests.get(url, headers=headers)
+                    html = resp.text
+
+                    imagens_brutas = re.findall(
+                        rf"https:(?:\\/|/)(?:\\/|/)cdn\.imoview\.com\.br(?:\\/|/)guarida(?:\\/|/)Imoveis(?:\\/|/){imovel_id}(?:\\/|/)[^\"'\s]+?\.(?:jpe?g|png|webp)(?:\?[^\"'\s]*)?",
+                        html,
+                        flags=re.IGNORECASE,
+                    )
+                    imagens = list(dict.fromkeys(
+                        img.replace("\\/", "/").replace("\\u0026", "&")
+                        for img in imagens_brutas
+                    ))
+
+                    print(f"Encontradas {len(imagens)} imagens")
+
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            resp = requests.get(img_url, headers=headers, timeout=10)
+
+                            if resp.status_code != 200:
+                                continue
+
+                            nome = f"img_{i}.jpg"
+                            caminho = f"{imagens_path}/{nome}"
+
+                            with open(caminho, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0,
+                                lambda p=caminho: self._adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(
+                                0,
+                                lambda: self.avancar_progresso(1)
+                            )
+
+                        except Exception as e:
+                            print(f"Erro: {e}")
+
+                elif "foxterciaimobiliaria.com.br" in url:
+                    def _foxter_url_alta_resolucao(img_url: str) -> str:
+                        if img_url.startswith("http"):
+                            if "/foxter/wm/" in img_url:
+                                caminho = img_url.split("/foxter/wm/", 1)[1]
+                                return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{caminho}"
+
+                            return (
+                                re.sub(r"/outer/\d+/", "/outer/1920/", img_url, count=1)
+                                .replace("https://images.foxter.com.br", "https://blob.foxter.com.br")
+                            )
+
+                        return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{img_url.lstrip('/')}"
+
+                    imagens = []
+                    try:
+                        dados_next = json.loads(
+                            re.search(
+                                r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+                                html,
+                            ).group(1)
+                        )
+                        produto = dados_next["props"]["pageProps"]["product"]
+                        imagens_data = produto.get("images", {}).get("data", [])
+
+                        imagens = [
+                            _foxter_url_alta_resolucao(item["etag"])
+                            for item in imagens_data
+                            if item.get("etag")
+                        ]
+                    except Exception:
+                        pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
+                        imagens_brutas = list(dict.fromkeys(re.findall(pattern, html)))
+                        imagens = [
+                            _foxter_url_alta_resolucao(img_url)
+                            for img_url in imagens_brutas
+                        ]
+
+                    print(f"Encontradas {len(imagens)} imagens")
+
+                    headers_img = {
+                        "User-Agent": headers["User-Agent"],
+                        "Referer": "https://www.foxterciaimobiliaria.com.br/"
+                    }
+
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, url in enumerate(imagens):
+                        try:
+                            print(f"Baixando: {url}")
+
+                            # if worker.is_cancelled:
+                            #     return
+
+                            resp = requests.get(url, headers=headers_img, timeout=10)
+
+                            if resp.status_code == 200:
+                                img_path = os.path.join(
+                                    imagens_path, f"img_{i}.jpg")
+
+                                with open(img_path, "wb") as f:
+                                    f.write(resp.content)
+
+                                self.root.after(
+                                    0,
+                                    lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                )
+
+                                self.root.after(
+                                    0,
+                                    lambda: self.avancar_progresso(1)
+                                )
+
+                            else:
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code}")
+
+                        except Exception as e:
+                            print(f"Erro ao baixar imagem: {e}")
+            
+            except Exception as e:
+
+                self.root.after(
+                    0,
+                    lambda: print(f"Erro geral: {e}")
+                )
+
+        threading.Thread(target=tarefa, daemon=True).start()
+
+    def adicionar_imagem_na_ui(self, caminho_imagem: str):
+
         try:
+
             if not os.path.exists(caminho_imagem):
-                self.notify(f"Arquivo não encontrado: {caminho_imagem}")
+
+                messagebox.showerror(
+                    "Erro",
+                    f"Arquivo não encontrado: {caminho_imagem}"
+                )
+
                 return
-            self.query_one("#grid_imagens_antes").mount(
-                Image(caminho_imagem))
+
+            self.adicionar_imagem(
+                self.grid_imagens_antes,
+                caminho_imagem
+            )
+
         except Exception as e:
-            self.notify(f"Erro ao adicionar imagem na UI: {e}")
 
-    def _resetar_progresso(self, total: int):
-        progress = self.query_one("#progress")
-        progress.update(total=total, progress=0)
+            messagebox.showerror(
+                "Erro",
+                f"Erro ao adicionar imagem na UI: {e}"
+            )
 
-    def _avancar_progresso(self, passos: int = 1):
-        self.query_one("#progress").advance(passos)
+
+    def resetar_progresso(self, total: int):
+
+        self.progress["maximum"] = total
+        self.progress["value"] = 0
+
+        self.root.update_idletasks()
+
+
+    def avancar_progresso(self, passos: int = 1):
+
+        self.progress["value"] += passos
+
+        self.root.update_idletasks()
 
     def pintagem(self, mascara):
-        etapas_total = 5
-        try:
-            self.call_from_thread(self._resetar_progresso, etapas_total)
-            self.call_from_thread(self.notify, "Iniciando remoção de logo...")
-            self.imagens_path = os.path.join(self.home, "Imagens")
-            self.destino_path = os.path.join(self.home, "Destino")
-            quant_pastas = len(os.listdir(self.imagens_path))
 
-            if (quant_pastas == 0):
+        def tarefa():
 
-                cmd = [
-                    "iopaint", "run",
-                    "--image", self.imagens_path,
-                    "--mask", mascara,
-                    "--output", self.destino_path,
-                ]
-                self.call_from_thread(
-                    self.notify, f"Executando: {' '.join(cmd)}")
-                self.call_from_thread(self._avancar_progresso, 1)
+            etapas_total = 5
 
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
-                self.call_from_thread(self._avancar_progresso, 1)
+            try:
 
-                stdout, stderr = process.communicate()
-                self.call_from_thread(self._avancar_progresso, 1)
+                self.root.after(0, lambda: self.resetar_progresso(etapas_total))
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Info",
+                    "Iniciando remoção de logo..."
+                ))
 
-                if stdout and stdout.strip():
-                    for linha in stdout.splitlines()[-3:]:
-                        self.call_from_thread(self.notify, f"iopaint: {linha}")
+                imagens_path = os.path.join(self.home, "Imagens")
+                destino_path = os.path.join(self.home, "Destino")
 
-                if stderr and stderr.strip():
-                    for linha in stderr.splitlines()[-3:]:
-                        self.call_from_thread(
-                            self.notify, f"iopaint stderr: {linha}")
+                arquivos = os.listdir(imagens_path)
 
-                if process.returncode == 0:
-                    self.call_from_thread(
-                        self.notify, "Remoção de logo concluída com sucesso")
-                    self.call_from_thread(self.carregar_destino)
-                else:
-                    self.call_from_thread(
-                        self.notify,
-                        f"Falha ao remover logo (código {process.returncode})"
-                    )
+                if len(arquivos) == 0:
 
-                self.call_from_thread(self._avancar_progresso, 2)
-            else:
-                for pasta in os.listdir(self.imagens_path):
-                    pasta_imagem = os.path.join(self.imagens_path, pasta)
-                    destino = os.path.join(self.destino_path, pasta)
                     cmd = [
                         "iopaint", "run",
-                        "--image", pasta_imagem,
+                        "--image", imagens_path,
                         "--mask", mascara,
-                        "--output", destino,
+                        "--output", destino_path,
                     ]
-                    self.call_from_thread(
-                        self.notify, f"Executando: {' '.join(cmd)}")
-                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    self.root.after(0, lambda: self.avancar_progresso(1))
 
                     process = subprocess.Popen(
                         cmd,
@@ -929,32 +1296,134 @@ class App(App):
                         stderr=subprocess.PIPE,
                         text=True
                     )
-                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    self.root.after(0, lambda: self.avancar_progresso(1))
 
                     stdout, stderr = process.communicate()
-                    self.call_from_thread(self._avancar_progresso, 1)
+
+                    self.root.after(0, lambda: self.avancar_progresso(1))
 
                     if stdout and stdout.strip():
+
                         for linha in stdout.splitlines()[-3:]:
-                            self.call_from_thread(
-                                self.notify, f"iopaint: {linha}")
+
+                            self.root.after(
+                                0,
+                                lambda l=linha: print(f"iopaint: {l}")
+                            )
 
                     if stderr and stderr.strip():
+
                         for linha in stderr.splitlines()[-3:]:
-                            self.call_from_thread(
-                                self.notify, f"iopaint stderr: {linha}")
+
+                            self.root.after(
+                                0,
+                                lambda l=linha: print(f"iopaint stderr: {l}")
+                            )
 
                     if process.returncode == 0:
-                        self.call_from_thread(
-                            self.notify, "Remoção de logo concluída com sucesso")
-                        self.call_from_thread(self.carregar_destino)
-                    else:
-                        self.call_from_thread(
-                            self.notify,
-                            f"Falha ao remover logo (código {process.returncode})"
+
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showinfo(
+                                "Sucesso",
+                                "Remoção de logo concluída com sucesso"
+                            )
                         )
 
-                    self.call_from_thread(self._avancar_progresso, 2)
+                        self.root.after(
+                            0,
+                            self.carregar_destino
+                        )
 
-        except Exception as e:
-            self.call_from_thread(self.notify, f"Erro na pintagem: {e}")
+                    else:
+
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showerror(
+                                "Erro",
+                                f"Falha ao remover logo ({process.returncode})"
+                            )
+                        )
+
+                    self.root.after(0, lambda: self.avancar_progresso(2))
+
+                else:
+
+                    for pasta in arquivos:
+
+                        pasta_imagem = os.path.join(imagens_path, pasta)
+                        destino = os.path.join(destino_path, pasta)
+
+                        cmd = [
+                            "iopaint", "run",
+                            "--image", pasta_imagem,
+                            "--mask", mascara,
+                            "--output", destino,
+                        ]
+
+                        self.root.after(0, lambda c=cmd: print("Executando:", " ".join(c)))
+
+                        self.root.after(0, lambda: self.avancar_progresso(1))
+
+                        process = subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+
+                        self.root.after(0, lambda: self.avancar_progresso(1))
+
+                        stdout, stderr = process.communicate()
+
+                        self.root.after(0, lambda: self.avancar_progresso(1))
+
+                        if process.returncode == 0:
+
+                            self.root.after(
+                                0,
+                                lambda: messagebox.showinfo(
+                                    "Sucesso",
+                                    "Remoção de logo concluída com sucesso"
+                                )
+                            )
+
+                            self.root.after(0, self.carregar_destino)
+
+                        else:
+
+                            self.root.after(
+                                0,
+                                lambda c=process.returncode: messagebox.showerror(
+                                    "Erro",
+                                    f"Falha ao remover logo ({c})"
+                                )
+                            )
+
+                        self.root.after(0, lambda: self.avancar_progresso(2))
+
+            except Exception as e:
+
+                self.root.after(
+                    0,
+                    lambda: messagebox.showerror(
+                        "Erro",
+                        f"Erro na pintagem: {e}"
+                    )
+                )
+
+        threading.Thread(target=tarefa, daemon=True).start()
+        
+        
+    def run(self):
+        self.root.mainloop()
+    
+if __name__ == "__main__":
+
+    root = tk.Tk()
+    root.geometry("1000x700")
+
+    app = App(root)
+
+    root.mainloop()

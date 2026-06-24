@@ -1,105 +1,186 @@
-from textual.app import App
-from textual.containers import Center, Horizontal, Grid
-from textual.screen import Screen
-from utils.selecionar_arquivos import selecionar_arquivos
-from textual.widgets import Button, Input, Static, Tab, Tabs, TextArea
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
+from PIL import Image, ImageTk
+
 from model.modelo import Modelo
-from textual_image.widget import Image
 
 
-class Anuncio(Screen):
-    
-    CSS_PATH = ["css/base.tcss", "css/anuncio.tcss"]
+class AnuncioApp:
 
-    def __init__(self, name=None, id=None, classes=None):
-        super().__init__(name, id, classes)
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Gerador de Anúncios")
+
         self.imagens = []
+
         self.modelo_atual = Modelo()
         self.modelo_atual.modelo = "llava:13b"
 
-    def vericar_modelos_imagem(self):
+        self.verificar_modelos_imagem()
 
+        self.criar_interface()
+
+    def verificar_modelos_imagem(self):
         if not self.modelo_atual.listar_nome_modelos():
-            self.notify("Não há nenhum modelo do ollama instalado")
+            messagebox.showwarning(
+                "Aviso",
+                "Não há nenhum modelo do Ollama instalado"
+            )
             return
 
         for modelo in self.modelo_atual.listar_nome_modelos():
             self.modelo_atual.modelo = modelo
+
             if self.modelo_atual.suporta_imagem:
                 return
-            else:
-                self.modelo_atual.modelo = None
-                continue
-            
-    def on_tabs_tab_activated(self, event: Tabs.TabActivated):
-        if event.tabs.active == self.query_one("#tab_imagens", Tab).id:
-                self.app.pop_screen()
-     
 
-    def on_mount(self):
-        if not self.modelo_atual.modelo:
-            self.vericar_modelos_imagem()
-            if not self.modelo_atual.modelo:
-                self.notify("Nenhum modelo suporta imagem")
-                
-    def on_screen_resume(self):
-        self.query_one(Tabs).active = self.query_one(
-            "#tab_anuncio", Tab).id
+        self.modelo_atual.modelo = None
+        messagebox.showwarning(
+            "Aviso",
+            "Nenhum modelo suporta imagem"
+        )
 
-    def compose(self):
-        yield Tabs(Tab('Imagens', id="tab_imagens"), Tab("Anúncio", id="tab_anuncio"))
-        with Center():
-            yield Button("Selecionar Imagem")
-        # yield Image()
-        with Center(id="center_grid"):
-            yield Grid()
-        with Center():
-            yield Button("Gerar Anúncio")
-        with Horizontal(id="h_titulo"):
-            yield Static("Título:")
-            yield Input(id="titulo", placeholder="Titulo do anúncio")
-        with Horizontal(id="h_descricao"):
-            yield Static("Descrição:")
-            yield Input(id="descricao", placeholder="Descrição do anúncio")
-            
-        yield TextArea()
+    def criar_interface(self):
 
-    async def on_button_pressed(self, event: Button.Pressed) -> None:
-        match event.button.label:
-            case "Selecionar Imagem":
-                self.imagens = selecionar_arquivos()
-                if self.imagens:
-                    for imagem in self.imagens:
-                        # self.query_one(Grid).style.display = "grid"
-                        self.query_one(Grid).mount(
-                            Image(imagem))
-            case "Gerar Anúncio":
-                if self.imagens:
-                        mensagem = '''Gerar um TEXTO anúncio com titulo e descricao com base nas imagens. Ser profissional, não usar emojis e nao falar tanto sobre valores
-                        Respeite esse formato:
-                        
-                        Titulo: "titulo do anuncio"
-                        
-                        Descrição: "descrição do anuncio"
-                        
-                        ATENÇÃO: A Imagem enviada é referente a um imóvel, então o anúncio deve ser sobre um imóvel, e deve ser um anúncio profissional, focado em vender ou alugar o imóvel.
-                        '''
+        tk.Button(
+            self.root,
+            text="Selecionar Imagem",
+            command=self.selecionar_imagens
+        ).pack(pady=10)
 
-                        resposta = self.modelo_atual.enviar_mensagem(
-                            mensagem=mensagem, imagens=self.imagens)
-                        
-                        
-                        self.notify(resposta)
-                        
-                        try:
+        self.frame_imagens = tk.Frame(self.root)
+        self.frame_imagens.pack(fill="x", padx=10)
 
-                            titulo = resposta.lower().split("titulo:")[1].strip()
-                            descricao = resposta.lower().split("descrição:")[1].strip()
+        tk.Button(
+            self.root,
+            text="Gerar Anúncio",
+            command=self.gerar_anuncio
+        ).pack(pady=10)
 
-                            self.query_one("#titulo", Input).value = titulo
-                            self.query_one("#descricao", Input).value = descricao
+        frame_titulo = tk.Frame(self.root)
+        frame_titulo.pack(fill="x", padx=10, pady=5)
 
-                        except Exception as e:
-                            print(e)
-                            self.notify(f"Não foi possível extrair o título e descrição do anúncio. Resposta: {resposta}")
-                            self.query_one(TextArea).text = resposta
+        tk.Label(frame_titulo, text="Título:").pack(side="left")
+
+        self.entry_titulo = tk.Entry(frame_titulo)
+        self.entry_titulo.pack(side="left", fill="x", expand=True)
+
+        frame_descricao = tk.Frame(self.root)
+        frame_descricao.pack(fill="x", padx=10, pady=5)
+
+        tk.Label(frame_descricao, text="Descrição:").pack(side="left")
+
+        self.entry_descricao = tk.Entry(frame_descricao)
+        self.entry_descricao.pack(side="left", fill="x", expand=True)
+
+        self.text_area = tk.Text(self.root, height=15)
+        self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
+
+        self.thumbnails = []
+
+    def selecionar_imagens(self):
+
+        arquivos = filedialog.askopenfilenames(
+            title="Selecionar imagens",
+            filetypes=[
+                ("Imagens", "*.png *.jpg *.jpeg *.webp *.bmp")
+            ]
+        )
+
+        if not arquivos:
+            return
+
+        self.imagens = list(arquivos)
+
+        for widget in self.frame_imagens.winfo_children():
+            widget.destroy()
+
+        self.thumbnails.clear()
+
+        for caminho in self.imagens:
+            try:
+                img = Image.open(caminho)
+                img.thumbnail((150, 150))
+
+                foto = ImageTk.PhotoImage(img)
+                self.thumbnails.append(foto)
+
+                lbl = tk.Label(self.frame_imagens, image=foto)
+                lbl.pack(side="left", padx=5)
+
+            except Exception as e:
+                print(e)
+
+    def gerar_anuncio(self):
+
+        if not self.imagens:
+            messagebox.showwarning(
+                "Aviso",
+                "Selecione ao menos uma imagem."
+            )
+            return
+
+        mensagem = """
+Gerar um TEXTO anúncio com titulo e descricao com base nas imagens.
+
+Ser profissional, não usar emojis e não falar tanto sobre valores.
+
+Respeite esse formato:
+
+Titulo: "titulo do anuncio"
+
+Descrição: "descrição do anuncio"
+
+ATENÇÃO:
+A imagem enviada é referente a um imóvel,
+então o anúncio deve ser sobre um imóvel,
+e deve ser um anúncio profissional,
+focado em vender ou alugar o imóvel.
+"""
+
+        try:
+
+            resposta = self.modelo_atual.enviar_mensagem(
+                mensagem=mensagem,
+                imagens=self.imagens
+            )
+
+            messagebox.showinfo("Resposta", "Anúncio gerado com sucesso!")
+
+            try:
+                titulo = resposta.split("titulo:")[1] \
+                    .split("descrição:")[0] \
+                    .strip()
+
+                descricao = resposta.split("descrição:")[1].strip()
+
+                self.entry_titulo.delete(0, tk.END)
+                self.entry_titulo.insert(0, titulo)
+
+                self.entry_descricao.delete(0, tk.END)
+                self.entry_descricao.insert(0, descricao)
+
+            except Exception:
+
+                self.text_area.delete("1.0", tk.END)
+                self.text_area.insert(tk.END, resposta)
+
+                messagebox.showwarning(
+                    "Aviso",
+                    "Não foi possível extrair título e descrição."
+                )
+
+        except Exception as e:
+            messagebox.showerror(
+                "Erro",
+                str(e)
+            )
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    root.geometry("1000x700")
+
+    app = AnuncioApp(root)
+
+    root.mainloop()
