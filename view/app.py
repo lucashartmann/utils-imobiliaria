@@ -1,7 +1,12 @@
 from uuid import uuid4
 import os
 from urllib.parse import urljoin
-from view.anuncio import Anuncio
+try:
+    from view.anuncio import AnuncioApp
+    from view.pintarImagem import LogoPainterApp
+except ImportError:
+    from anuncio import AnuncioApp
+    from pintarImagem import LogoPainterApp
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
 from utils.zapimoveis import extrair_imagens_zapimoveis, obter_html_renderizado_zapimoveis
@@ -17,6 +22,14 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageTk
+
+import argparse
+import io
+import sys
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog, simpledialog
+from pathlib import Path
+from typing import Optional
 
 
 class App:
@@ -50,8 +63,10 @@ class App:
 
         self.tab_imagens = tk.Frame(self.tabs)
         self.tab_anuncio = tk.Frame(self.tabs)
+        self.tab_mascara = tk.Frame(self.tabs)
 
         self.tabs.add(self.tab_imagens, text="Imagens")
+        self.tabs.add(self.tab_mascara, text="Máscara")
         self.tabs.add(self.tab_anuncio, text="Anúncio")
 
         self.tabs.bind(
@@ -94,13 +109,13 @@ class App:
             command=lambda: self.acao_botao("Abrir Diretório")
         ).pack(side="left")
 
-        self.nome_pasta = tk.Entry(self.tab_imagens)
+        # self.nome_pasta = tk.Entry(self.tab_imagens)
 
-        self.nome_pasta.pack(
-            fill="x",
-            padx=5,
-            pady=5
-        )
+        # self.nome_pasta.pack(
+        #     fill="x",
+        #     padx=5,
+        #     pady=5
+        # )
 
         self.progress = ttk.Progressbar(
             self.tab_imagens,
@@ -133,13 +148,43 @@ class App:
             pady=5
         )
 
-        self.grid_imagens_antes = tk.Frame(
-            self.frame_antes
+        canvas = tk.Canvas(self.frame_antes)
+
+        scrollbar = tk.Scrollbar(
+            self.frame_antes,
+            orient="vertical",
+            command=canvas.yview
         )
 
-        self.grid_imagens_antes.pack(
+        canvas.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        canvas.pack(
             fill="both",
             expand=True
+        )
+
+        self.grid_imagens_antes = tk.Frame(
+            canvas
+        )
+
+        canvas.create_window(
+            (0, 0),
+            window=self.grid_imagens_antes,
+            anchor="nw"
+        )
+
+        self.grid_imagens_antes.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
         )
 
         botoes_antes = tk.Frame(
@@ -147,6 +192,7 @@ class App:
         )
 
         botoes_antes.pack(
+            side="bottom",
             fill="x",
             pady=5
         )
@@ -182,18 +228,41 @@ class App:
             pady=5
         )
 
-        self.lista_mascaras = tk.Listbox(
-            self.frame_mascaras
+        canvas = tk.Canvas(self.frame_mascaras)
+
+        scrollbar = tk.Scrollbar(
+            self.frame_mascaras,
+            orient="vertical",
+            command=canvas.yview
         )
 
-        self.lista_mascaras.pack(
+        canvas.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        canvas.pack(
             fill="both",
             expand=True
         )
 
-        self.lista_mascaras.bind(
-            "<<ListboxSelect>>",
-            self.selecionar_mascara
+        self.grid_mascaras = tk.Frame(canvas)
+
+        canvas.create_window(
+            (0, 0),
+            window=self.grid_mascaras,
+            anchor="nw"
+        )
+
+        self.grid_mascaras.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
         )
 
         botoes_mascaras = tk.Frame(
@@ -201,6 +270,7 @@ class App:
         )
 
         botoes_mascaras.pack(
+            side="bottom",
             fill="x",
             pady=5
         )
@@ -235,13 +305,37 @@ class App:
             pady=5
         )
 
-        self.grid_imagens_depois = tk.Frame(
-            self.frame_depois
+        canvas = tk.Canvas(self.frame_depois)
+
+        scrollbar = tk.Scrollbar(
+            self.frame_depois,
+            orient="vertical",
+            command=canvas.yview
         )
 
-        self.grid_imagens_depois.pack(
+        canvas.configure(
+            yscrollcommand=scrollbar.set
+        )
+
+        scrollbar.pack(
+            side="right",
+            fill="y"
+        )
+
+        canvas.pack(
             fill="both",
             expand=True
+        )
+
+        self.grid_imagens_depois = tk.Frame(
+            canvas
+        )
+
+        self.grid_imagens_depois.bind(
+            "<Configure>",
+            lambda e: canvas.configure(
+                scrollregion=canvas.bbox("all")
+            )
         )
 
         botoes_depois = tk.Frame(
@@ -249,6 +343,7 @@ class App:
         )
 
         botoes_depois.pack(
+            side="bottom",
             fill="x",
             pady=5
         )
@@ -289,7 +384,7 @@ class App:
                 )
 
                 self.adicionar_imagem(
-                    self.frame_antes,
+                    self.grid_imagens_antes,
                     caminho
                 )
 
@@ -297,10 +392,8 @@ class App:
 
         extensoes = (".jpg", ".jpeg", ".png")
 
-        self.lista_mascaras.delete(
-            0,
-            tk.END
-        )
+        for widget in self.grid_mascaras.winfo_children():
+            widget.destroy()
 
         for arquivo in os.listdir(self.mascaras_path):
 
@@ -311,8 +404,8 @@ class App:
                     arquivo
                 )
 
-                self.lista_mascaras.insert(
-                    tk.END,
+                self.adicionar_imagem(
+                    self.grid_mascaras,
                     caminho
                 )
 
@@ -330,10 +423,9 @@ class App:
                 )
 
                 self.adicionar_imagem(
-                    self.frame_depois,
+                    self.grid_imagens_depois,
                     caminho
                 )
-
 
     def adicionar_imagem(self, frame, caminho):
 
@@ -347,14 +439,27 @@ class App:
 
             self.thumbnails.append(foto)
 
+            total = len(frame.winfo_children())
+
+            linha = total // 3
+            coluna = total % 3
+
             label = tk.Label(
                 frame,
                 image=foto
             )
 
             label.image = foto
+            label.caminho = caminho
 
-            label.pack(
+            label.bind(
+                "<Button-1>",
+                self.selecionar_mascara
+            )
+
+            label.grid(
+                row=linha,
+                column=coluna,
                 padx=5,
                 pady=5
             )
@@ -364,15 +469,24 @@ class App:
 
     def selecionar_mascara(self, event):
 
-        selecionado = self.lista_mascaras.curselection()
+        self.caminho_mascara_selecionada = ""
 
-        if not selecionado:
-            return
+        for widget in self.grid_mascaras.winfo_children():
+            widget.config(
+                relief="flat",
+                bd=0,
+                highlightthickness=0
+            )
 
-        indice = selecionado[0]
+        event.widget.config(
+            relief="solid",
+            bd=3,
+            highlightbackground="orange",
+            highlightthickness=3
+        )
 
         self.caminho_mascara_selecionada = (
-            self.lista_mascaras.get(indice)
+            event.widget.caminho
         )
 
     def on_tab_changed(self, event):
@@ -381,8 +495,32 @@ class App:
             self.tabs.select()
         )
 
-        if indice == 1:
-            self.abrir_tela_anuncio()
+        if indice == 2:
+            AnuncioApp(self.root)
+        elif indice == 1:
+            parser = argparse.ArgumentParser(
+                description="Logo Mask Painter — pinte a logo e envie ao IOPaint"
+            )
+            parser.add_argument(
+                "folder",
+                nargs="?",
+                default=".",
+                help="Pasta com as imagens (padrão: pasta atual)",
+            )
+            parser.add_argument(
+                "--iopaint-url",
+                default="http://localhost:8080",
+                help="URL base do IOPaint (padrão: http://localhost:8080)",
+            )
+            args = parser.parse_args()
+
+            folder = Path(args.folder).resolve()
+            if not folder.is_dir():
+                print(f"Erro: '{folder}' não é uma pasta.", file=sys.stderr)
+                sys.exit(1)
+
+            LogoPainterApp(self.root, folder=str(
+                folder), iopaint_url=args.iopaint_url)
 
     def acao_botao(self, acao, container=None):
 
@@ -417,10 +555,10 @@ class App:
                 if not imagens:
                     return
 
-                if container == self.frame_antes:
+                if container == self.grid_imagens_antes:
                     destino = self.imagens_path
 
-                elif container == self.frame_depois:
+                elif container == self.grid_imagens_depois:
                     destino = self.destino_path
 
                 elif container == self.lista_mascaras:
@@ -467,10 +605,16 @@ class App:
 
                     destino = ""
 
-                    if container == self.frame_antes:
+                    if not messagebox.askyesno(
+                        "Confirmação",
+                        "Deseja realmente limpar as imagens?"
+                    ):
+                        return
+
+                    if container == self.grid_imagens_antes:
                         destino = self.imagens_path
 
-                    elif container == self.frame_depois:
+                    elif container == self.grid_imagens_depois:
                         destino = self.destino_path
 
                     else:
@@ -546,18 +690,6 @@ class App:
                         str(e)
                     )
 
-    def selecionar_mascara(self, event):
-
-        selecionado = self.lista_mascaras.curselection()
-
-        if not selecionado:
-            return
-
-        indice = selecionado[0]
-
-        self.caminho_mascara_selecionada = \
-            self.lista_mascaras.get(indice)
-    
     def extracao(self, url):
 
         def tarefa():
@@ -613,16 +745,19 @@ class App:
                                 lambda u=img_url: print(f"Baixando: {u}")
                             )
 
-                            img_data = requests.get(img_url, headers=headers).content
+                            img_data = requests.get(
+                                img_url, headers=headers).content
 
-                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(
+                                imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self.adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -638,7 +773,7 @@ class App:
                             )
 
                 elif "creditoreal" in url:
-            
+
                     def extrair_creditoreal(self, html, url):
 
                         soup = BeautifulSoup(html, "html.parser")
@@ -732,7 +867,8 @@ class App:
                                         for k in ["src", "url", "imageUrl"]:
 
                                             if item.get(k):
-                                                urls.append(normalizar(item[k]))
+                                                urls.append(
+                                                    normalizar(item[k]))
 
                                     elif isinstance(item, str):
                                         urls.append(normalizar(item))
@@ -763,7 +899,8 @@ class App:
 
                             padrao = r'https?://storage\.googleapis\.com/snapproperty_imgs/creditoreal/[^"\s>]+?\.(?:jpe?g|png|webp)(?:\?[^"\s>]*)?'
 
-                            imagens.extend(re.findall(padrao, html, flags=re.IGNORECASE))
+                            imagens.extend(re.findall(
+                                padrao, html, flags=re.IGNORECASE))
 
                         return imagens
                     imagens = extrair_creditoreal(html, url)
@@ -794,7 +931,8 @@ class App:
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self.adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -814,21 +952,24 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
                             img_data = requests.get(
                                 img_url, headers=headers, timeout=10).content
-                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(
+                                imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -846,21 +987,24 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
                             img_data = requests.get(
                                 img_url, headers=headers, timeout=10).content
-                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(
+                                imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -883,7 +1027,8 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     headers_zap = {
                         **headers,
@@ -913,7 +1058,8 @@ class App:
 
                             self.root.after(
                                 0,
-                                lambda p=save_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=save_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -941,7 +1087,8 @@ class App:
 
                     imagens = list(set(imagens))
 
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     print(f"Encontradas {len(imagens)} imagens")
 
@@ -949,16 +1096,19 @@ class App:
                         try:
                             print(f"Baixando: {img_url}")
 
-                            img_data = requests.get(img_url, headers=headers).content
+                            img_data = requests.get(
+                                img_url, headers=headers).content
 
-                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(
+                                imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -991,18 +1141,22 @@ class App:
 
                     imagens = list(set(imagens))
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
-                            img_data = requests.get(img_url, headers=headers).content
-                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            img_data = requests.get(
+                                img_url, headers=headers).content
+                            img_path = os.path.join(
+                                imagens_path, f"img_{i}.jpg")
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -1054,7 +1208,8 @@ class App:
 
                     for i, img_url in enumerate(imagens):
                         try:
-                            resp = requests.get(img_url, headers=headers, timeout=10)
+                            resp = requests.get(
+                                img_url, headers=headers, timeout=10)
 
                             if resp.status_code != 200:
                                 print(f"Erro {resp.status_code}: {img_url}")
@@ -1069,7 +1224,8 @@ class App:
 
                             self.root.after(
                                 0,
-                                lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                lambda p=img_path: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -1103,11 +1259,13 @@ class App:
 
                     print(f"Encontradas {len(imagens)} imagens")
 
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
-                            resp = requests.get(img_url, headers=headers, timeout=10)
+                            resp = requests.get(
+                                img_url, headers=headers, timeout=10)
 
                             if resp.status_code != 200:
                                 continue
@@ -1120,7 +1278,8 @@ class App:
 
                             self.root.after(
                                 0,
-                                lambda p=caminho: self._adicionar_imagem_na_ui(p)
+                                lambda p=caminho: self._adicionar_imagem_na_ui(
+                                    p)
                             )
 
                             self.root.after(
@@ -1139,7 +1298,8 @@ class App:
                                 return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{caminho}"
 
                             return (
-                                re.sub(r"/outer/\d+/", "/outer/1920/", img_url, count=1)
+                                re.sub(r"/outer/\d+/", "/outer/1920/",
+                                       img_url, count=1)
                                 .replace("https://images.foxter.com.br", "https://blob.foxter.com.br")
                             )
 
@@ -1154,7 +1314,8 @@ class App:
                             ).group(1)
                         )
                         produto = dados_next["props"]["pageProps"]["product"]
-                        imagens_data = produto.get("images", {}).get("data", [])
+                        imagens_data = produto.get(
+                            "images", {}).get("data", [])
 
                         imagens = [
                             _foxter_url_alta_resolucao(item["etag"])
@@ -1163,7 +1324,8 @@ class App:
                         ]
                     except Exception:
                         pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
-                        imagens_brutas = list(dict.fromkeys(re.findall(pattern, html)))
+                        imagens_brutas = list(
+                            dict.fromkeys(re.findall(pattern, html)))
                         imagens = [
                             _foxter_url_alta_resolucao(img_url)
                             for img_url in imagens_brutas
@@ -1176,7 +1338,8 @@ class App:
                         "Referer": "https://www.foxterciaimobiliaria.com.br/"
                     }
 
-                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(
+                        0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, url in enumerate(imagens):
                         try:
@@ -1185,7 +1348,8 @@ class App:
                             # if worker.is_cancelled:
                             #     return
 
-                            resp = requests.get(url, headers=headers_img, timeout=10)
+                            resp = requests.get(
+                                url, headers=headers_img, timeout=10)
 
                             if resp.status_code == 200:
                                 img_path = os.path.join(
@@ -1196,7 +1360,8 @@ class App:
 
                                 self.root.after(
                                     0,
-                                    lambda p=img_path: self._adicionar_imagem_na_ui(p)
+                                    lambda p=img_path: self._adicionar_imagem_na_ui(
+                                        p)
                                 )
 
                                 self.root.after(
@@ -1210,7 +1375,7 @@ class App:
 
                         except Exception as e:
                             print(f"Erro ao baixar imagem: {e}")
-            
+
             except Exception as e:
 
                 self.root.after(
@@ -1245,14 +1410,12 @@ class App:
                 f"Erro ao adicionar imagem na UI: {e}"
             )
 
-
     def resetar_progresso(self, total: int):
 
         self.progress["maximum"] = total
         self.progress["value"] = 0
 
         self.root.update_idletasks()
-
 
     def avancar_progresso(self, passos: int = 1):
 
@@ -1262,13 +1425,14 @@ class App:
 
     def pintagem(self, mascara):
 
-        def tarefa():
+        def tarefa(mascara):
 
             etapas_total = 5
 
             try:
 
-                self.root.after(0, lambda: self.resetar_progresso(etapas_total))
+                self.root.after(
+                    0, lambda: self.resetar_progresso(etapas_total))
                 self.root.after(0, lambda: messagebox.showinfo(
                     "Info",
                     "Iniciando remoção de logo..."
@@ -1279,90 +1443,118 @@ class App:
 
                 arquivos = os.listdir(imagens_path)
 
-                if len(arquivos) == 0:
+                for arquivo in arquivos:
 
-                    cmd = [
-                        "iopaint", "run",
-                        "--image", imagens_path,
-                        "--mask", mascara,
-                        "--output", destino_path,
-                    ]
+                    self.root.after(0, lambda: self.resetar_progresso(
+                        len(os.listdir(imagens_path))))
 
-                    self.root.after(0, lambda: self.avancar_progresso(1))
-
-                    process = subprocess.Popen(
-                        cmd,
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True
-                    )
-
-                    self.root.after(0, lambda: self.avancar_progresso(1))
-
-                    stdout, stderr = process.communicate()
-
-                    self.root.after(0, lambda: self.avancar_progresso(1))
-
-                    if stdout and stdout.strip():
-
-                        for linha in stdout.splitlines()[-3:]:
-
-                            self.root.after(
-                                0,
-                                lambda l=linha: print(f"iopaint: {l}")
-                            )
-
-                    if stderr and stderr.strip():
-
-                        for linha in stderr.splitlines()[-3:]:
-
-                            self.root.after(
-                                0,
-                                lambda l=linha: print(f"iopaint stderr: {l}")
-                            )
-
-                    if process.returncode == 0:
+                    if os.path.isdir(os.path.join(imagens_path, arquivo)):
 
                         self.root.after(
-                            0,
-                            lambda: messagebox.showinfo(
-                                "Sucesso",
-                                "Remoção de logo concluída com sucesso"
-                            )
-                        )
+                            0, lambda: self.resetar_progresso(len(os.listdir(os.path.join(imagens_path, arquivo)))))
 
-                        self.root.after(
-                            0,
-                            self.carregar_destino
-                        )
+                        pasta = arquivo
+                        
+                        if os.path.exists(os.path.join(destino_path, pasta)) and len(os.listdir(os.path.join(imagens_path, pasta))) == len(os.listdir(os.path.join(destino_path, pasta))):
+                            print(f"Pulando pasta {pasta} porque já foi processada.")
+                            continue
 
-                    else:
+                        for arquivo in os.listdir(os.path.join(imagens_path, pasta)):
 
-                        self.root.after(
-                            0,
-                            lambda: messagebox.showerror(
-                                "Erro",
-                                f"Falha ao remover logo ({process.returncode})"
-                            )
-                        )
+                            try:
 
-                    self.root.after(0, lambda: self.avancar_progresso(2))
+                                caminho_imagem = os.path.join(
+                                    imagens_path, pasta, arquivo)
+                                destino_imagem = os.path.join(
+                                    destino_path, pasta)
 
-                else:
+                                resolucao = Image.open(caminho_imagem).size
+                                mascaraObj = Image.open(
+                                    mascara).resize(resolucao)
+                                mascara_temp_path = os.path.join(
+                                    self.home, "mascara_temp.png")
+                                mascaraObj.save(mascara_temp_path)
 
-                    for pasta in arquivos:
+                                if os.path.exists(os.path.join(
+                                        destino_path, pasta, arquivo)):
+                                    print(f"Pulando {arquivo} porque já foi processada.")
+                                    continue
 
-                        pasta_imagem = os.path.join(imagens_path, pasta)
-                        destino = os.path.join(destino_path, pasta)
+                                cmd = [
+                                    "iopaint", "run",
+                                    "--image", caminho_imagem,
+                                    "--mask", mascara_temp_path,
+                                    "--output", destino_imagem,
+                                ]
+
+                                self.root.after(0, lambda c=cmd: print(
+                                    "Executando:", " ".join(c)))
+
+                                self.root.after(
+                                    0, lambda: self.avancar_progresso(1))
+
+                                process = subprocess.Popen(
+                                    cmd,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.PIPE,
+                                    text=True
+                                )
+
+                                self.root.after(
+                                    0, lambda: self.avancar_progresso(1))
+
+                                stdout, stderr = process.communicate()
+
+                                self.root.after(
+                                    0, lambda: self.avancar_progresso(1))
+
+                                if process.returncode == 0:
+
+                                    # self.root.after(
+                                    #     0,
+                                    #     lambda: messagebox.showinfo(
+                                    #         "Sucesso",
+                                    #         "Remoção de logo concluída com sucesso"
+                                    #     )
+                                    # )
+
+                                    self.root.after(
+                                        0,
+                                        self.carregar_destino
+                                    )
+
+                                os.remove(mascara_temp_path)
+                            except Exception as e:
+                                print(f"Erro ao processar {arquivo}: {e}")
+                                continue
+
+                        continue
+
+                    try:
+
+                        caminho_imagem = os.path.join(imagens_path, arquivo)
+                        destino_imagem = os.path.join(destino_path, arquivo)
+
+                        resolucao = Image.open(caminho_imagem).size
+                        mascaraObj = Image.open(mascara).resize(resolucao)
+                        mascara_temp_path = os.path.join(
+                            self.home, "mascara_temp.png")
+                        mascaraObj.save(mascara_temp_path)
+                        # print(mascara)
+
+                        if os.path.exists(os.path.join(
+                                destino_path, pasta, arquivo)):
+                            continue
 
                         cmd = [
                             "iopaint", "run",
-                            "--image", pasta_imagem,
-                            "--mask", mascara,
-                            "--output", destino,
+                            "--image", caminho_imagem,
+                            "--mask", mascara_temp_path,
+                            "--output", destino_imagem,
                         ]
 
-                        self.root.after(0, lambda c=cmd: print("Executando:", " ".join(c)))
+                        self.root.after(0, lambda c=cmd: print(
+                            "Executando:", " ".join(c)))
 
                         self.root.after(0, lambda: self.avancar_progresso(1))
 
@@ -1383,42 +1575,30 @@ class App:
 
                             self.root.after(
                                 0,
-                                lambda: messagebox.showinfo(
-                                    "Sucesso",
-                                    "Remoção de logo concluída com sucesso"
-                                )
+                                self.carregar_destino
                             )
 
-                            self.root.after(0, self.carregar_destino)
-
-                        else:
-
-                            self.root.after(
-                                0,
-                                lambda c=process.returncode: messagebox.showerror(
-                                    "Erro",
-                                    f"Falha ao remover logo ({c})"
-                                )
-                            )
-
-                        self.root.after(0, lambda: self.avancar_progresso(2))
+                        os.remove(mascara_temp_path)
+                    except Exception as e:
+                        print(f"Erro ao processar {arquivo}: {e}")
+                        continue
 
             except Exception as e:
 
                 self.root.after(
                     0,
-                    lambda: messagebox.showerror(
+                    lambda erro=str(e): messagebox.showerror(
                         "Erro",
-                        f"Erro na pintagem: {e}"
+                        f"Erro na pintagem: {erro}"
                     )
                 )
 
-        threading.Thread(target=tarefa, daemon=True).start()
-        
-        
+        threading.Thread(target=tarefa(mascara), daemon=True).start()
+
     def run(self):
         self.root.mainloop()
-    
+
+
 if __name__ == "__main__":
 
     root = tk.Tk()
