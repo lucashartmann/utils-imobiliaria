@@ -595,8 +595,9 @@ class SidePanel(tk.Frame):
 
 
 class LogoPainterApp:
-    def __init__(self, root: tk.Tk, folder: str, iopaint_url: str):
+    def __init__(self, root: tk.Tk, folder: str, iopaint_url: str, container=None):
         self.root = root
+        self.container = container or root
         self.root.title("Logo Mask Painter")
         self.root.geometry("1280x800")
         self.folder = Path(folder).resolve()
@@ -605,14 +606,21 @@ class LogoPainterApp:
         self._last_result: Optional[PILImage.Image] = None
 
         self._build_ui()
+        self._hotkeys_ativos = False
+        self._atalhos_zoom = (
+            "<Control-equal>",
+            "<Control-minus>",
+            "<Control-0>",
+        )
         self._bind_keys()
+        self.ativar_atalhos()
 
     def _build_ui(self):
         self._info_var = tk.StringVar(value="Selecione uma imagem na árvore →")
-        tk.Label(self.root, textvariable=self._info_var, anchor="w",
+        tk.Label(self.container, textvariable=self._info_var, anchor="w",
                  bg="#252526", fg="#858585").pack(fill="x")
 
-        main = tk.Frame(self.root)
+        main = tk.Frame(self.container)
         main.pack(fill="both", expand=True)
 
         self._side = SidePanel(main, self, width=165)
@@ -636,13 +644,26 @@ class LogoPainterApp:
         self._tree.pack_propagate(False)
 
     def _bind_keys(self):
-        self.root.bind("<Control-z>", lambda e: self.undo())
-        self.root.bind("<c>", lambda e: self.clear_mask())
-        self.root.bind("<p>", lambda e: self.preview_mask())
-        self.root.bind("<s>", lambda e: self.send_to_iopaint())
-        self.root.bind("<Control-equal>", lambda e: self.zoom_in())
-        self.root.bind("<Control-minus>", lambda e: self.zoom_out())
-        self.root.bind("<Control-0>", lambda e: self.zoom_reset())
+        pass
+
+    def ativar_atalhos(self):
+        if self._hotkeys_ativos:
+            return
+        self.root.bind_all("<Control-z>", lambda e: self.undo(), add="+")
+        self.root.bind_all("<c>", lambda e: self.clear_mask(), add="+")
+        self.root.bind_all("<p>", lambda e: self.preview_mask(), add="+")
+        self.root.bind_all("<s>", lambda e: self.send_to_iopaint(), add="+")
+        self.root.bind_all("<Control-equal>", lambda e: self.zoom_in(), add="+")
+        self.root.bind_all("<Control-minus>", lambda e: self.zoom_out(), add="+")
+        self.root.bind_all("<Control-0>", lambda e: self.zoom_reset(), add="+")
+        self._hotkeys_ativos = True
+
+    def desativar_atalhos(self):
+        if not self._hotkeys_ativos:
+            return
+        for seq in self._atalhos_zoom + ("<Control-z>", "<c>", "<p>", "<s>"):
+            self.root.unbind_all(seq)
+        self._hotkeys_ativos = False
 
     def _set_status(self, msg: str):
         self._side.status_lbl.set(msg)

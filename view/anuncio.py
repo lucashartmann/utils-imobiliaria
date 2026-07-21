@@ -7,8 +7,9 @@ from model.modelo import Modelo
 
 class AnuncioApp:
 
-    def __init__(self, root):
+    def __init__(self, root, container=None):
         self.root = root
+        self.container = container or root
         self.root.title("Gerador de Anúncios")
 
         self.imagens = []
@@ -43,21 +44,21 @@ class AnuncioApp:
     def criar_interface(self):
 
         tk.Button(
-            self.root,
+            self.container,
             text="Selecionar Imagem",
             command=self.selecionar_imagens
         ).pack(pady=10)
 
-        self.frame_imagens = tk.Frame(self.root)
+        self.frame_imagens = tk.Frame(self.container)
         self.frame_imagens.pack(fill="x", padx=10)
 
         tk.Button(
-            self.root,
+            self.container,
             text="Gerar Anúncio",
             command=self.gerar_anuncio
         ).pack(pady=10)
 
-        frame_titulo = tk.Frame(self.root)
+        frame_titulo = tk.Frame(self.container)
         frame_titulo.pack(fill="x", padx=10, pady=5)
 
         tk.Label(frame_titulo, text="Título:").pack(side="left")
@@ -65,7 +66,7 @@ class AnuncioApp:
         self.entry_titulo = tk.Entry(frame_titulo)
         self.entry_titulo.pack(side="left", fill="x", expand=True)
 
-        frame_descricao = tk.Frame(self.root)
+        frame_descricao = tk.Frame(self.container)
         frame_descricao.pack(fill="x", padx=10, pady=5)
 
         tk.Label(frame_descricao, text="Descrição:").pack(side="left")
@@ -73,7 +74,7 @@ class AnuncioApp:
         self.entry_descricao = tk.Entry(frame_descricao)
         self.entry_descricao.pack(side="left", fill="x", expand=True)
 
-        self.text_area = tk.Text(self.root, height=15)
+        self.text_area = tk.Text(self.container, height=15)
         self.text_area.pack(fill="both", expand=True, padx=10, pady=10)
 
         self.thumbnails = []
