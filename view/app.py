@@ -1,4 +1,3 @@
-from uuid import uuid4
 import os
 from urllib.parse import urljoin
 try:
@@ -9,7 +8,10 @@ except ImportError:
     from pintarImagem import LogoPainterApp
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
-from utils.zapimoveis import extrair_imagens_zapimoveis, obter_html_renderizado_zapimoveis
+from utils.zapimoveis import (
+    extrair_imagens_zapimoveis,
+    obter_html_renderizado_zapimoveis,
+)
 from utils.selecionar_arquivos import selecionar_arquivos
 import re
 import json
@@ -22,17 +24,12 @@ import threading
 import tkinter as tk
 from tkinter import ttk
 from PIL import Image, ImageDraw, ImageTk
-
-import argparse
-import io
-import os
-import sys
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+from tkinter import ttk, messagebox
 from pathlib import Path
 from typing import Optional
 import tkinter.font as tkfont
-
+from playwright.sync_api import sync_playwright
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif")
 
@@ -49,14 +46,23 @@ def _criar_icone_arquivo(size: int = 16):
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     draw.rectangle((2, 1, size - 3, size - 2), fill="#ffffff", outline="#8a8a8a")
-    draw.polygon([(size - 6, 1), (size - 3, 1), (size - 3, 4)], fill="#dadada", outline="#8a8a8a")
+    draw.polygon(
+        [(size - 6, 1), (size - 3, 1), (size - 3, 4)], fill="#dadada", outline="#8a8a8a"
+    )
     draw.line((4, 6, size - 5, 6), fill="#9a9a9a")
     draw.line((4, 9, size - 5, 9), fill="#9a9a9a")
     return ImageTk.PhotoImage(img)
 
 
 class NavegadorArquivos(tk.Frame):
-    def __init__(self, parent, raiz: str, extensoes=IMAGE_EXTENSIONS, titulo: str = "", multisselecao: bool = True):
+    def __init__(
+        self,
+        parent,
+        raiz: str,
+        extensoes=IMAGE_EXTENSIONS,
+        titulo: str = "",
+        multisselecao: bool = True,
+    ):
         super().__init__(parent)
         self.raiz = Path(raiz).resolve()
         self.extensoes = tuple(extensoes)
@@ -76,22 +82,40 @@ class NavegadorArquivos(tk.Frame):
 
     def _build_ui(self):
         if self.titulo:
-            tk.Label(self, text=self.titulo, anchor="w", font=("", 10, "bold")).pack(fill="x", padx=8, pady=(4, 2))
+            tk.Label(self, text=self.titulo, anchor="w", font=("", 10, "bold")).pack(
+                fill="x", padx=8, pady=(4, 2)
+            )
 
         barra = tk.Frame(self)
         barra.pack(fill="x", padx=4, pady=(0, 4))
         self._caminho_var = tk.StringVar(value=str(self.raiz))
-        tk.Entry(barra, textvariable=self._caminho_var).pack(side="left", fill="x", expand=True, padx=(0, 4))
-        ttk.Button(barra, text="Ir", width=4, command=self._ir_para_raiz).pack(side="left")
-        tk.Button(barra, text="P", width=2, command=lambda: self._set_thumb_size(32)).pack(side="left", padx=(6, 2))
-        tk.Button(barra, text="M", width=2, command=lambda: self._set_thumb_size(72)).pack(side="left", padx=2)
-        tk.Button(barra, text="G", width=2, command=lambda: self._set_thumb_size(112)).pack(side="left", padx=2)
+        tk.Entry(barra, textvariable=self._caminho_var).pack(
+            side="left", fill="x", expand=True, padx=(0, 4)
+        )
+        ttk.Button(barra, text="Ir", width=4, command=self._ir_para_raiz).pack(
+            side="left"
+        )
+        tk.Button(
+            barra, text="P", width=2, command=lambda: self._set_thumb_size(32)
+        ).pack(side="left", padx=(6, 2))
+        tk.Button(
+            barra, text="M", width=2, command=lambda: self._set_thumb_size(72)
+        ).pack(side="left", padx=2)
+        tk.Button(
+            barra, text="G", width=2, command=lambda: self._set_thumb_size(112)
+        ).pack(side="left", padx=2)
 
         self._scroll = tk.Scrollbar(self, orient="vertical")
         self._scroll.pack(side="right", fill="y")
 
         selectmode = "extended" if self.multisselecao else "browse"
-        self.tree = ttk.Treeview(self, show="tree", selectmode=selectmode, yscrollcommand=self._scroll.set, style="Browser.Treeview")
+        self.tree = ttk.Treeview(
+            self,
+            show="tree",
+            selectmode=selectmode,
+            yscrollcommand=self._scroll.set,
+            style="Browser.Treeview",
+        )
         self.tree.pack(fill="both", expand=True)
         self._scroll.config(command=self.tree.yview)
 
@@ -118,23 +142,47 @@ class NavegadorArquivos(tk.Frame):
             return
 
         nome_raiz = self.raiz.name or str(self.raiz)
-        self._node_raiz = self.tree.insert("", "end", text=nome_raiz, image=self._icone_pasta, open=True, values=(str(self.raiz), "dir"))
+        self._node_raiz = self.tree.insert(
+            "",
+            "end",
+            text=nome_raiz,
+            image=self._icone_pasta,
+            open=True,
+            values=(str(self.raiz), "dir"),
+        )
         self._tree_adicionar_filhos(self._node_raiz, self.raiz)
         self.tree.item(self._node_raiz, open=True)
 
     def _tree_adicionar_filhos(self, parent, pasta: Path):
         try:
-            filhos = sorted(pasta.iterdir(), key=lambda p: (p.is_file(), p.name.lower()))
+            filhos = sorted(
+                pasta.iterdir(), key=lambda p: (p.is_file(), p.name.lower())
+            )
         except Exception:
             return
 
         for filho in filhos:
             if filho.is_dir():
-                no = self.tree.insert(parent, "end", text=filho.name, image=self._icone_pasta, open=False, values=(str(filho), "dir"))
-                self.tree.insert(no, "end", text="...", values=(str(filho), "placeholder"))
+                no = self.tree.insert(
+                    parent,
+                    "end",
+                    text=filho.name,
+                    image=self._icone_pasta,
+                    open=False,
+                    values=(str(filho), "dir"),
+                )
+                self.tree.insert(
+                    no, "end", text="...", values=(str(filho), "placeholder")
+                )
             elif filho.is_file() and filho.suffix.lower() in self.extensoes:
                 thumb = self._carregar_miniatura(filho)
-                no = self.tree.insert(parent, "end", text=filho.name, image=thumb, values=(str(filho), "file"))
+                no = self.tree.insert(
+                    parent,
+                    "end",
+                    text=filho.name,
+                    image=thumb,
+                    values=(str(filho), "file"),
+                )
                 self._file_nodes[str(filho.resolve())] = no
 
     def _set_thumb_size(self, tamanho: int):
@@ -174,7 +222,11 @@ class NavegadorArquivos(tk.Frame):
         if tipo != "dir":
             return
         filhos = self.tree.get_children(no)
-        if len(filhos) == 1 and self.tree.item(filhos[0], "values") and self.tree.item(filhos[0], "values")[1] == "placeholder":
+        if (
+            len(filhos) == 1
+            and self.tree.item(filhos[0], "values")
+            and self.tree.item(filhos[0], "values")[1] == "placeholder"
+        ):
             self.tree.delete(filhos[0])
             self._tree_adicionar_filhos(no, Path(caminho))
 
@@ -207,7 +259,9 @@ class NavegadorArquivos(tk.Frame):
         menu.add_command(label="Copiar", command=lambda i=item: self._copiar_item(i))
         menu.add_command(label="Remover", command=lambda i=item: self._remover_item(i))
         menu.add_separator()
-        menu.add_command(label="Abrir no Explorer", command=lambda i=item: self._abrir_no_explorer(i))
+        menu.add_command(
+            label="Abrir no Explorer", command=lambda i=item: self._abrir_no_explorer(i)
+        )
         menu.tk_popup(event.x_root, event.y_root)
 
     def _item_caminho_tipo(self, item):
@@ -241,7 +295,10 @@ class NavegadorArquivos(tk.Frame):
         caminho, tipo = self._item_caminho_tipo(item)
         if caminho is None:
             return
-        if not messagebox.askyesno("Confirmar", f"Remover {'pasta' if tipo == 'dir' else 'arquivo'}?\n{caminho}"):
+        if not messagebox.askyesno(
+            "Confirmar",
+            f"Remover {'pasta' if tipo == 'dir' else 'arquivo'}?\n{caminho}",
+        ):
             return
         try:
             if caminho.is_dir():
@@ -270,10 +327,22 @@ class NavegadorArquivos(tk.Frame):
         if not self._drag_item:
             return
         if self._drag_overlay is None:
-            self._drag_overlay = tk.Label(self, text=self.tree.item(self._drag_item, "text"), bd=1, relief="solid", bg="#fef7cc")
-            self._drag_overlay.place(x=event.x_root - self.winfo_rootx() + 12, y=event.y_root - self.winfo_rooty() + 12)
+            self._drag_overlay = tk.Label(
+                self,
+                text=self.tree.item(self._drag_item, "text"),
+                bd=1,
+                relief="solid",
+                bg="#fef7cc",
+            )
+            self._drag_overlay.place(
+                x=event.x_root - self.winfo_rootx() + 12,
+                y=event.y_root - self.winfo_rooty() + 12,
+            )
         else:
-            self._drag_overlay.place(x=event.x_root - self.winfo_rootx() + 12, y=event.y_root - self.winfo_rooty() + 12)
+            self._drag_overlay.place(
+                x=event.x_root - self.winfo_rootx() + 12,
+                y=event.y_root - self.winfo_rooty() + 12,
+            )
 
     def _soltar_item(self, event):
         if not self._drag_item:
@@ -296,7 +365,10 @@ class NavegadorArquivos(tk.Frame):
             return
         if destino_tipo != "dir":
             return
-        if destino_caminho in origem_caminho.parents or destino_caminho == origem_caminho:
+        if (
+            destino_caminho in origem_caminho.parents
+            or destino_caminho == origem_caminho
+        ):
             return
 
         try:
@@ -355,11 +427,10 @@ class NavegadorArquivos(tk.Frame):
 
 class App:
 
-    arquivos = [
-        ("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")
-    ]
+    arquivos = [("Imagens", "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.tiff")]
 
     caminho_mascara_selecionada = ""
+
     def __init__(self, root):
 
         self.root = root
@@ -408,10 +479,7 @@ class App:
         self.tabs.add(self.tab_mascara, text="Máscara")
         self.tabs.add(self.tab_anuncio, text="Anúncio")
 
-        self.tabs.bind(
-            "<<NotebookTabChanged>>",
-            self.on_tab_changed
-        )
+        self.tabs.bind("<<NotebookTabChanged>>", self.on_tab_changed)
 
         self._anuncio_app = None
         self._mascara_app = None
@@ -419,56 +487,33 @@ class App:
         header = tk.Frame(self.tab_imagens)
         header.pack(fill="x", padx=5, pady=5)
 
-        tk.Label(
-            header,
-            text="Link do site:"
-        ).pack(side="left")
+        tk.Label(header, text="Link do site:").pack(side="left")
 
         self.input_link = tk.Entry(header)
 
-        self.input_link.pack(
-            side="left",
-            fill="x",
-            expand=True,
-            padx=5
-        )
+        self.input_link.pack(side="left", fill="x", expand=True, padx=5)
 
         tk.Button(
-            header,
-            text="Extrair",
-            command=lambda: self.acao_botao("Extrair")
+            header, text="Extrair", command=lambda: self.acao_botao("Extrair")
         ).pack(side="left")
 
         tk.Button(
-            header,
-            text="Remover Logo",
-            command=lambda: self.acao_botao("Remover Logo")
+            header, text="Remover Logo", command=lambda: self.acao_botao("Remover Logo")
         ).pack(side="left")
 
         tk.Button(
             header,
             text="Abrir Diretório",
-            command=lambda: self.acao_botao("Abrir Diretório")
+            command=lambda: self.acao_botao("Abrir Diretório"),
         ).pack(side="left")
 
         self.nome_pasta = tk.Entry(self.tab_imagens)
 
-        self.nome_pasta.pack(
-            fill="x",
-            padx=5,
-            pady=5
-        )
+        self.nome_pasta.pack(fill="x", padx=5, pady=5)
 
-        self.progress = ttk.Progressbar(
-            self.tab_imagens,
-            maximum=100
-        )
+        self.progress = ttk.Progressbar(self.tab_imagens, maximum=100)
 
-        self.progress.pack(
-            fill="x",
-            padx=5,
-            pady=5
-        )
+        self.progress.pack(fill="x", padx=5, pady=5)
 
         conteudo = ttk.PanedWindow(self.tab_imagens, orient="horizontal")
         conteudo.pack(fill="both", expand=True)
@@ -522,7 +567,9 @@ class App:
         self.grid_mascaras = self.browser_mascaras
         self.lista_mascaras = self.browser_mascaras
 
-        self.browser_mascaras.tree.bind("<<TreeviewSelect>>", self._atualizar_mascara_selecionada)
+        self.browser_mascaras.tree.bind(
+            "<<TreeviewSelect>>", self._atualizar_mascara_selecionada
+        )
 
         botoes_mascaras = tk.Frame(self.frame_mascaras)
         botoes_mascaras.pack(side="bottom", fill="x", pady=5)
@@ -613,7 +660,10 @@ class App:
             estilo = ttk.Style(self.root)
             rowheight = max(18, int(round(22 * self._ui_zoom)))
             estilo.configure("Treeview", rowheight=rowheight)
-            estilo.configure("Browser.Treeview", rowheight=max(18, int(round((72 + 16) * self._ui_zoom))))
+            estilo.configure(
+                "Browser.Treeview",
+                rowheight=max(18, int(round((72 + 16) * self._ui_zoom))),
+            )
         except Exception:
             pass
 
@@ -661,7 +711,9 @@ class App:
 
     def _atualizar_mascara_selecionada(self, event=None):
         selecionado = self.browser_mascaras.caminho_selecionado()
-        self.caminho_mascara_selecionada = str(selecionado) if selecionado and selecionado.is_file() else ""
+        self.caminho_mascara_selecionada = (
+            str(selecionado) if selecionado and selecionado.is_file() else ""
+        )
 
     def _carregar_tela_anuncio(self):
         if self._anuncio_app is None:
@@ -682,9 +734,7 @@ class App:
 
     def on_tab_changed(self, event):
 
-        indice = self.tabs.index(
-            self.tabs.select()
-        )
+        indice = self.tabs.index(self.tabs.select())
 
         if indice == 2:
             self._desativar_zoom_global()
@@ -733,10 +783,7 @@ class App:
 
                         nome = os.path.basename(imagem)
 
-                        shutil.copy2(
-                            imagem,
-                            os.path.join(destino, nome)
-                        )
+                        shutil.copy2(imagem, os.path.join(destino, nome))
 
                         if container == self.browser_mascaras:
                             self.carregar_mascaras()
@@ -747,10 +794,7 @@ class App:
 
                     except Exception as e:
 
-                        messagebox.showerror(
-                            "Erro",
-                            f"Erro ao copiar imagem: {e}"
-                        )
+                        messagebox.showerror("Erro", f"Erro ao copiar imagem: {e}")
 
             case "Limpar Imagens":
 
@@ -759,8 +803,7 @@ class App:
                     destino = ""
 
                     if not messagebox.askyesno(
-                        "Confirmação",
-                        "Deseja realmente limpar as imagens?"
+                        "Confirmação", "Deseja realmente limpar as imagens?"
                     ):
                         return
 
@@ -786,10 +829,7 @@ class App:
 
                 except Exception as e:
 
-                    messagebox.showerror(
-                        "Erro",
-                        str(e)
-                    )
+                    messagebox.showerror("Erro", str(e))
 
             case "Extrair":
 
@@ -798,22 +838,14 @@ class App:
                 try:
 
                     threading.Thread(
-                        target=self.extracao,
-                        args=(link,),
-                        daemon=True
+                        target=self.extracao, args=(link,), daemon=True
                     ).start()
 
-                    self.input_link.delete(
-                        0,
-                        "end"
-                    )
+                    self.input_link.delete(0, "end")
 
                 except Exception as e:
 
-                    messagebox.showerror(
-                        "Erro",
-                        str(e)
-                    )
+                    messagebox.showerror("Erro", str(e))
 
             case "Remover Logo":
 
@@ -823,10 +855,7 @@ class App:
 
                     if not self.caminho_mascara_selecionada:
 
-                        messagebox.showwarning(
-                            "Aviso",
-                            "Selecione uma máscara"
-                        )
+                        messagebox.showwarning("Aviso", "Selecione uma máscara")
 
                         return
 
@@ -837,15 +866,12 @@ class App:
                     threading.Thread(
                         target=self.pintagem,
                         args=(self.caminho_mascara_selecionada, alvos),
-                        daemon=True
+                        daemon=True,
                     ).start()
 
                 except Exception as e:
 
-                    messagebox.showerror(
-                        "Erro",
-                        str(e)
-                    )
+                    messagebox.showerror("Erro", str(e))
 
     def extracao(self, url):
 
@@ -898,36 +924,25 @@ class App:
                         try:
 
                             self.root.after(
-                                0,
-                                lambda u=img_url: print(f"Baixando: {u}")
+                                0, lambda u=img_url: print(f"Baixando: {u}")
                             )
 
-                            img_data = requests.get(
-                                img_url, headers=headers).content
+                            img_data = requests.get(img_url, headers=headers).content
 
-                            img_path = os.path.join(
-                                imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
 
                         except Exception as e:
 
-                            self.root.after(
-                                0,
-                                lambda err=e: print(f"Erro: {err}")
-                            )
+                            self.root.after(0, lambda err=e: print(f"Erro: {err}"))
 
                 elif "creditoreal" in url:
 
@@ -952,13 +967,21 @@ class App:
 
                             src_lower = src.lower()
 
-                            if not any(ext in src_lower for ext in [".jpg", ".jpeg", ".png", ".webp"]):
+                            if not any(
+                                ext in src_lower
+                                for ext in [".jpg", ".jpeg", ".png", ".webp"]
+                            ):
                                 return False
 
-                            if "storage.googleapis.com/snapproperty_imgs/creditoreal/" in src_lower:
+                            if (
+                                "storage.googleapis.com/snapproperty_imgs/creditoreal/"
+                                in src_lower
+                            ):
                                 return True
 
-                            return any(k in src_lower for k in ["imovel", "galeria", "foto"])
+                            return any(
+                                k in src_lower for k in ["imovel", "galeria", "foto"]
+                            )
 
                         def adicionar(src: str):
 
@@ -1024,8 +1047,7 @@ class App:
                                         for k in ["src", "url", "imageUrl"]:
 
                                             if item.get(k):
-                                                urls.append(
-                                                    normalizar(item[k]))
+                                                urls.append(normalizar(item[k]))
 
                                     elif isinstance(item, str):
                                         urls.append(normalizar(item))
@@ -1044,7 +1066,12 @@ class App:
 
                         for img in soup.find_all("img"):
 
-                            for attr in ["src", "data-src", "data-lazy", "data-original"]:
+                            for attr in [
+                                "src",
+                                "data-src",
+                                "data-lazy",
+                                "data-original",
+                            ]:
                                 adicionar(img.get(attr))
 
                             if img.get("srcset"):
@@ -1056,10 +1083,12 @@ class App:
 
                             padrao = r'https?://storage\.googleapis\.com/snapproperty_imgs/creditoreal/[^"\s>]+?\.(?:jpe?g|png|webp)(?:\?[^"\s>]*)?'
 
-                            imagens.extend(re.findall(
-                                padrao, html, flags=re.IGNORECASE))
+                            imagens.extend(
+                                re.findall(padrao, html, flags=re.IGNORECASE)
+                            )
 
                         return imagens
+
                     imagens = extrair_creditoreal(html, url)
 
                     total = len(imagens)
@@ -1073,29 +1102,19 @@ class App:
                             print(f"Baixando: {img_url}")
 
                             img_data = requests.get(
-                                img_url,
-                                headers=headers,
-                                timeout=10
+                                img_url, headers=headers, timeout=10
                             ).content
 
-                            img_path = os.path.join(
-                                imagens_path,
-                                f"img_{i}.jpg"
-                            )
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
 
                         except Exception as e:
 
@@ -1109,30 +1128,24 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
                             img_data = requests.get(
-                                img_url, headers=headers, timeout=10).content
-                            img_path = os.path.join(
-                                imagens_path, f"img_{i}.jpg")
+                                img_url, headers=headers, timeout=10
+                            ).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
                         except Exception as e:
                             print(f"Erro ao baixar: {e}")
 
@@ -1144,30 +1157,24 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
                             img_data = requests.get(
-                                img_url, headers=headers, timeout=10).content
-                            img_path = os.path.join(
-                                imagens_path, f"img_{i}.jpg")
+                                img_url, headers=headers, timeout=10
+                            ).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
                         except Exception as e:
                             print(f"Erro ao baixar: {e}")
 
@@ -1184,8 +1191,7 @@ class App:
                         return
 
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     headers_zap = {
                         **headers,
@@ -1198,12 +1204,11 @@ class App:
                         try:
                             print(f"Baixando: {img_url}")
                             resp = requests.get(
-                                img_url, headers=headers_zap, timeout=10)
+                                img_url, headers=headers_zap, timeout=10
+                            )
 
                             if resp.status_code != 200:
-                                print(
-                                    f"Erro ao baixar imagem: HTTP {resp.status_code}"
-                                )
+                                print(f"Erro ao baixar imagem: HTTP {resp.status_code}")
                                 continue
 
                             filename = f"img_{i}.jpg"
@@ -1214,15 +1219,10 @@ class App:
                                 f.write(resp.content)
 
                             self.root.after(
-                                0,
-                                lambda p=save_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=save_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
                         except Exception as e:
                             print(f"Erro ao baixar: {e}")
                             continue
@@ -1244,8 +1244,7 @@ class App:
 
                     imagens = list(set(imagens))
 
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     print(f"Encontradas {len(imagens)} imagens")
 
@@ -1253,30 +1252,23 @@ class App:
                         try:
                             print(f"Baixando: {img_url}")
 
-                            img_data = requests.get(
-                                img_url, headers=headers).content
+                            img_data = requests.get(img_url, headers=headers).content
 
-                            img_path = os.path.join(
-                                imagens_path, f"img_{i}.jpg")
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
 
                         except Exception as e:
                             print(f"Erro: {e}")
 
-                elif 'veronezimoveis.com.br' in url:
+                elif "veronezimoveis.com.br" in url:
                     id_match = re.search(r"/imovel/(\d+)/", url)
                     if not id_match:
                         print("ID do imóvel não encontrado")
@@ -1284,13 +1276,15 @@ class App:
 
                     imovel_id = id_match.group(1)
 
-                    imagens = list(dict.fromkeys(
-                        re.findall(
-                            r"https://www\.veronezimoveis\.com\.br/media/imoveis/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
-                            html,
-                            flags=re.IGNORECASE,
+                    imagens = list(
+                        dict.fromkeys(
+                            re.findall(
+                                r"https://www\.veronezimoveis\.com\.br/media/imoveis/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
+                                html,
+                                flags=re.IGNORECASE,
+                            )
                         )
-                    ))
+                    )
 
                     if not imagens:
                         print("Nenhuma imagem encontrada na página")
@@ -1298,28 +1292,20 @@ class App:
 
                     imagens = list(set(imagens))
                     print(f"Encontradas {len(imagens)} imagens")
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
                     for i, img_url in enumerate(imagens):
                         try:
                             print(f"Baixando: {img_url}")
-                            img_data = requests.get(
-                                img_url, headers=headers).content
-                            img_path = os.path.join(
-                                imagens_path, f"img_{i}.jpg")
+                            img_data = requests.get(img_url, headers=headers).content
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
                             with open(img_path, "wb") as f:
                                 f.write(img_data)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
                         except Exception as e:
                             print(f"Erro ao baixar: {e}")
                             continue
@@ -1339,7 +1325,7 @@ class App:
                         "User-Agent": "Mozilla/5.0",
                         "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
                         "Referer": f"https://www.quintoandar.com.br/imovel/{imovel_id}",
-                        "Origin": "https://www.quintoandar.com.br"
+                        "Origin": "https://www.quintoandar.com.br",
                     }
 
                     resp = requests.get(api_url, headers=headers)
@@ -1349,14 +1335,19 @@ class App:
 
                     for foto in data:
                         if isinstance(foto, dict):
-                            url_img = foto.get("url") or foto.get(
-                                "imageUrl") or foto.get("src")
+                            url_img = (
+                                foto.get("url")
+                                or foto.get("imageUrl")
+                                or foto.get("src")
+                            )
 
                             if url_img:
                                 if url_img.startswith("/"):
                                     url_img = "https://www.quintoandar.com.br" + url_img
                                 elif not url_img.startswith("http"):
-                                    url_img = "https://www.quintoandar.com.br/img/" + url_img
+                                    url_img = (
+                                        "https://www.quintoandar.com.br/img/" + url_img
+                                    )
                                 imagens.append(url_img)
 
                     imagens = list(dict.fromkeys(imagens))
@@ -1365,8 +1356,7 @@ class App:
 
                     for i, img_url in enumerate(imagens):
                         try:
-                            resp = requests.get(
-                                img_url, headers=headers, timeout=10)
+                            resp = requests.get(img_url, headers=headers, timeout=10)
 
                             if resp.status_code != 200:
                                 print(f"Erro {resp.status_code}: {img_url}")
@@ -1380,15 +1370,10 @@ class App:
                                 f.write(resp.content)
 
                             self.root.after(
-                                0,
-                                lambda p=img_path: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
 
                         except Exception as e:
                             print(f"Erro ao baixar {img_url}: {e}")
@@ -1409,20 +1394,20 @@ class App:
                         html,
                         flags=re.IGNORECASE,
                     )
-                    imagens = list(dict.fromkeys(
-                        img.replace("\\/", "/").replace("\\u0026", "&")
-                        for img in imagens_brutas
-                    ))
+                    imagens = list(
+                        dict.fromkeys(
+                            img.replace("\\/", "/").replace("\\u0026", "&")
+                            for img in imagens_brutas
+                        )
+                    )
 
                     print(f"Encontradas {len(imagens)} imagens")
 
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
-                            resp = requests.get(
-                                img_url, headers=headers, timeout=10)
+                            resp = requests.get(img_url, headers=headers, timeout=10)
 
                             if resp.status_code != 200:
                                 continue
@@ -1434,30 +1419,124 @@ class App:
                                 f.write(resp.content)
 
                             self.root.after(
-                                0,
-                                lambda p=caminho: self.adicionar_imagem_na_ui(
-                                    p)
+                                0, lambda p=caminho: self.adicionar_imagem_na_ui(p)
                             )
 
-                            self.root.after(
-                                0,
-                                lambda: self.avancar_progresso(1)
-                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
 
                         except Exception as e:
                             print(f"Erro: {e}")
 
+                elif "imovelweb.com.br" in url:
+
+                    def baixar_imagens_imovelweb(url, headless=False):
+                        with sync_playwright() as p:
+                            context = p.chromium.launch_persistent_context(
+                                user_data_dir="./perfil_navegador",
+                                headless=headless,
+                                user_agent=(
+                                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                                    "Chrome/150.0.0.0 Safari/537.36"
+                                ),
+                                locale="pt-BR",
+                                viewport={"width": 1920, "height": 1080},
+                            )
+
+                            page = context.new_page()
+
+                            try:
+                                page.goto(
+                                    url, wait_until="domcontentloaded", timeout=60000
+                                )
+
+                                if "Just a moment" in page.title():
+                                    print("Aguardando Cloudflare...")
+                                    page.wait_for_function(
+                                        "() => !document.title.includes('Just a moment')",
+                                        timeout=120000,
+                                    )
+
+                                page.wait_for_selector(
+                                    'img[src*="imovelwebcdn.com/avisos"]', timeout=30000
+                                )
+
+                                page.wait_for_load_state("networkidle")
+
+                                html = page.content()
+
+                            finally:
+                                context.close()
+
+                        imagens = re.findall(
+                            r'"resizeUrl1200x1200":"(https:\\/\\/[^"]+)"', html
+                        )
+
+                        imagens = [
+                            img.replace("\\/", "/").split("?")[0] for img in imagens
+                        ]
+
+                        if not imagens:
+                            imagens = re.findall(
+                                r'https://[^"\']*imovelwebcdn\.com/avisos/resize/[^"\']+?\.jpe?g',
+                                html,
+                            )
+
+                        imagens = list(dict.fromkeys(imagens))
+
+                        print(f"Encontradas {len(imagens)} imagens")
+
+                        return imagens
+
+                    imagens = baixar_imagens_imovelweb(url, headless=False)
+
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    headers_img = {
+                        "User-Agent": (
+                            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                            "AppleWebKit/537.36 (KHTML, like Gecko) "
+                            "Chrome/150.0.0.0 Safari/537.36"
+                        ),
+                        "Referer": url,
+                    }
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            resp = requests.get(
+                                img_url, headers=headers_img, timeout=15
+                            )
+
+                            if resp.status_code != 200:
+                                continue
+
+                            caminho = os.path.join(imagens_path, f"img_{i}.jpg")
+
+                            with open(caminho, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0, lambda p=caminho: self.adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(0, lambda: self.avancar_progresso(1))
+
+                        except Exception as e:
+                            print(e)
+
                 elif "foxterciaimobiliaria.com.br" in url:
+
                     def _foxter_url_alta_resolucao(img_url: str) -> str:
                         if img_url.startswith("http"):
                             if "/foxter/wm/" in img_url:
                                 caminho = img_url.split("/foxter/wm/", 1)[1]
                                 return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{caminho}"
 
-                            return (
-                                re.sub(r"/outer/\d+/", "/outer/1920/",
-                                       img_url, count=1)
-                                .replace("https://images.foxter.com.br", "https://blob.foxter.com.br")
+                            return re.sub(
+                                r"/outer/\d+/", "/outer/1920/", img_url, count=1
+                            ).replace(
+                                "https://images.foxter.com.br",
+                                "https://blob.foxter.com.br",
                             )
 
                         return f"https://blob.foxter.com.br/rest/image/outer/1920/1/foxter/wm/{img_url.lstrip('/')}"
@@ -1471,8 +1550,7 @@ class App:
                             ).group(1)
                         )
                         produto = dados_next["props"]["pageProps"]["product"]
-                        imagens_data = produto.get(
-                            "images", {}).get("data", [])
+                        imagens_data = produto.get("images", {}).get("data", [])
 
                         imagens = [
                             _foxter_url_alta_resolucao(item["etag"])
@@ -1481,8 +1559,7 @@ class App:
                         ]
                     except Exception:
                         pattern = r"https://images\.foxter\.com\.br/[^\s\"']+\.jpg"
-                        imagens_brutas = list(
-                            dict.fromkeys(re.findall(pattern, html)))
+                        imagens_brutas = list(dict.fromkeys(re.findall(pattern, html)))
                         imagens = [
                             _foxter_url_alta_resolucao(img_url)
                             for img_url in imagens_brutas
@@ -1492,11 +1569,10 @@ class App:
 
                     headers_img = {
                         "User-Agent": headers["User-Agent"],
-                        "Referer": "https://www.foxterciaimobiliaria.com.br/"
+                        "Referer": "https://www.foxterciaimobiliaria.com.br/",
                     }
 
-                    self.root.after(
-                        0, lambda: self.resetar_progresso(len(imagens)))
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
 
                     for i, img_url in enumerate(imagens):
                         try:
@@ -1506,39 +1582,30 @@ class App:
                             #     return
 
                             resp = requests.get(
-                                img_url, headers=headers_img, timeout=10)
+                                img_url, headers=headers_img, timeout=10
+                            )
 
                             if resp.status_code == 200:
-                                img_path = os.path.join(
-                                    imagens_path, f"img_{i}.jpg")
+                                img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
                                 with open(img_path, "wb") as f:
                                     f.write(resp.content)
 
                                 self.root.after(
-                                    0,
-                                    lambda p=img_path: self.adicionar_imagem_na_ui(
-                                        p)
+                                    0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
                                 )
 
-                                self.root.after(
-                                    0,
-                                    lambda: self.avancar_progresso(1)
-                                )
+                                self.root.after(0, lambda: self.avancar_progresso(1))
 
                             else:
-                                print(
-                                    f"Erro ao baixar imagem: HTTP {resp.status_code}")
+                                print(f"Erro ao baixar imagem: HTTP {resp.status_code}")
 
                         except Exception as e:
                             print(f"Erro ao baixar imagem: {e}")
 
             except Exception as e:
 
-                self.root.after(
-                    0,
-                    lambda err=str(e): print(f"Erro geral: {err}")
-                )
+                self.root.after(0, lambda err=str(e): print(f"Erro geral: {err}"))
 
         threading.Thread(target=tarefa, daemon=True).start()
 
@@ -1549,8 +1616,7 @@ class App:
             if not os.path.exists(caminho_imagem):
 
                 messagebox.showerror(
-                    "Erro",
-                    f"Arquivo não encontrado: {caminho_imagem}"
+                    "Erro", f"Arquivo não encontrado: {caminho_imagem}"
                 )
 
                 return
@@ -1562,10 +1628,7 @@ class App:
 
         except Exception as e:
 
-            messagebox.showerror(
-                "Erro",
-                f"Erro ao adicionar imagem na UI: {e}"
-            )
+            messagebox.showerror("Erro", f"Erro ao adicionar imagem na UI: {e}")
 
     def resetar_progresso(self, total: int):
 
@@ -1637,18 +1700,16 @@ class App:
                     self.root.after(
                         0,
                         lambda: messagebox.showwarning(
-                            "Aviso",
-                            "Nenhuma imagem encontrada na seleção atual."
-                        )
+                            "Aviso", "Nenhuma imagem encontrada na seleção atual."
+                        ),
                     )
                     return
 
+                self.root.after(0, lambda: self.resetar_progresso(etapas_total))
                 self.root.after(
-                    0, lambda: self.resetar_progresso(etapas_total))
-                self.root.after(0, lambda: messagebox.showinfo(
-                    "Info",
-                    "Iniciando remoção de logo..."
-                ))
+                    0,
+                    lambda: messagebox.showinfo("Info", "Iniciando remoção de logo..."),
+                )
 
                 destino_path = os.path.join(self.home, "Destino")
                 for caminho_imagem in imagens_para_processar:
@@ -1669,19 +1730,25 @@ class App:
                         mascaraObj.save(mascara_temp_path)
 
                         cmd = [
-                            "iopaint", "run",
-                            "--image", caminho_imagem,
-                            "--mask", mascara_temp_path,
-                            "--output", destino_imagem,
+                            "iopaint",
+                            "run",
+                            "--image",
+                            caminho_imagem,
+                            "--mask",
+                            mascara_temp_path,
+                            "--output",
+                            destino_imagem,
                         ]
 
-                        self.root.after(0, lambda c=cmd: print("Executando:", " ".join(c)))
+                        self.root.after(
+                            0, lambda c=cmd: print("Executando:", " ".join(c))
+                        )
 
                         process = subprocess.Popen(
                             cmd,
                             stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE,
-                            text=True
+                            text=True,
                         )
 
                         stdout, stderr = process.communicate()
@@ -1703,9 +1770,8 @@ class App:
                 self.root.after(
                     0,
                     lambda erro=str(e): messagebox.showerror(
-                        "Erro",
-                        f"Erro na pintagem: {erro}"
-                    )
+                        "Erro", f"Erro na pintagem: {erro}"
+                    ),
                 )
 
         threading.Thread(target=tarefa, args=(mascara, alvos), daemon=True).start()
