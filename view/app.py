@@ -1,5 +1,5 @@
 import os
-from urllib.parse import urljoin
+from urllib.parse import parse_qs, unquote, urljoin, urlparse
 try:
     from view.anuncio import AnuncioApp
     from view.pintarImagem import LogoPainterApp
@@ -32,6 +32,79 @@ import tkinter.font as tkfont
 from playwright.sync_api import sync_playwright
 
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", ".tif")
+
+
+def extrair_imagens_auxiliadora(html: str, pagina_url: str):
+    soup = BeautifulSoup(html, "html.parser")
+    imagens = []
+    vistos = set()
+    imovel_match = re.search(r"/imovel/venda/(\d+)/", pagina_url)
+    imovel_id = imovel_match.group(1) if imovel_match else None
+
+    def normalizar(url_imagem: str):
+        if not url_imagem:
+            return None
+
+        url_imagem = url_imagem.strip().replace("\\/", "/").rstrip("\\")
+
+        if imovel_id and f"/vendas/imoveis/{imovel_id}/" not in url_imagem.lower():
+            return None
+
+        if url_imagem.startswith("//"):
+            url_imagem = "https:" + url_imagem
+        elif url_imagem.startswith("/"):
+            url_imagem = urljoin(pagina_url, url_imagem)
+
+        parsed = urlparse(url_imagem)
+        if parsed.path.endswith("/_next/image") or parsed.path.endswith("/_next/image/"):
+            original = parse_qs(parsed.query).get("url", [None])[0]
+            if original:
+                url_imagem = unquote(original)
+
+                if url_imagem.startswith("//"):
+                    url_imagem = "https:" + url_imagem
+                elif url_imagem.startswith("/"):
+                    url_imagem = urljoin(pagina_url, url_imagem)
+
+        return url_imagem
+
+    def adicionar(url_imagem: str):
+        url_imagem = normalizar(url_imagem)
+        if not url_imagem:
+            return
+
+        url_lower = url_imagem.lower()
+        if not any(ext in url_lower for ext in IMAGE_EXTENSIONS):
+            return
+
+        if url_imagem not in vistos:
+            vistos.add(url_imagem)
+            imagens.append(url_imagem)
+
+    for img in soup.find_all("img"):
+        for attr in ["src", "data-src", "data-lazy", "data-original"]:
+            adicionar(img.get(attr))
+
+        srcset = img.get("srcset")
+        if srcset:
+            for parte in srcset.split(","):
+                adicionar(parte.strip().split(" ")[0])
+
+    for match in re.findall(
+        r'https?://www\.auxiliadorapredial\.com\.br/_next/image\?url=[^"\'\\]+',
+        html,
+        flags=re.IGNORECASE,
+    ):
+        adicionar(match)
+
+    for match in re.findall(
+        r'https?://img\.auxiliadorapredial\.com\.br/thumb/1920/[^"\'\\]+',
+        html,
+        flags=re.IGNORECASE,
+    ):
+        adicionar(match)
+
+    return imagens
 
 
 def _criar_icone_pasta(size: int = 16):
@@ -911,11 +984,11 @@ class App:
 
                 if "auxiliadorapredial" in url:
 
-                    pattern = r"https://img\.auxiliadorapredial\.com\.br/thumb/1920/[^\"']+\.jpg"
-
-                    imagens = list(set(re.findall(pattern, html)))
+                    imagens = extrair_imagens_auxiliadora(html, url)
 
                     total = len(imagens)
+
+                    print(f"Encontradas {total} imagens na Auxiliadora")
 
                     self.root.after(0, lambda: self.resetar_progresso(total))
 
@@ -927,7 +1000,16 @@ class App:
                                 0, lambda u=img_url: print(f"Baixando: {u}")
                             )
 
-                            img_data = requests.get(img_url, headers=headers).content
+                            resp = requests.get(img_url, headers=headers, timeout=10)
+
+                            content_type = resp.headers.get("content-type", "")
+                            if not resp.ok or not content_type.startswith("image/"):
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code} | {content_type} | {img_url}"
+                                )
+                                continue
+
+                            img_data = resp.content
 
                             img_path = os.path.join(imagens_path, f"img_{i}.jpg")
 
