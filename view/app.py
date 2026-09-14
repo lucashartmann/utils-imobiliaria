@@ -1,11 +1,12 @@
 import os
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
-try:
-    from view.anuncio import AnuncioApp
-    from view.pintarImagem import LogoPainterApp
-except ImportError:
-    from anuncio import AnuncioApp
-    from pintarImagem import LogoPainterApp
+
+# try:
+#     from view.anuncio import AnuncioApp
+#     from view.pintarImagem import LogoPainterApp
+# except ImportError:
+#     from anuncio import AnuncioApp
+#     from pintarImagem import LogoPainterApp
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
 from utils.zapimoveis import (
@@ -36,8 +37,7 @@ IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff", "
 
 def extrair_imagens_auxiliadora(html: str, pagina_url: str):
     soup = BeautifulSoup(html, "html.parser")
-    imagens = []
-    vistos = set()
+    candidatos = {}
     imovel_match = re.search(r"/imovel/venda/(\d+)/", pagina_url)
     imovel_id = imovel_match.group(1) if imovel_match else None
 
@@ -56,7 +56,9 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
             url_imagem = urljoin(pagina_url, url_imagem)
 
         parsed = urlparse(url_imagem)
-        if parsed.path.endswith("/_next/image") or parsed.path.endswith("/_next/image/"):
+        if parsed.path.endswith("/_next/image") or parsed.path.endswith(
+            "/_next/image/"
+        ):
             original = parse_qs(parsed.query).get("url", [None])[0]
             if original:
                 url_imagem = unquote(original)
@@ -68,18 +70,22 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
 
         return url_imagem
 
-    def adicionar(url_imagem: str):
+    def adicionar(url_imagem: str, largura_srcset: int = 0):
         url_imagem = normalizar(url_imagem)
         if not url_imagem:
             return
 
-        url_lower = url_imagem.lower()
-        if not any(ext in url_lower for ext in IMAGE_EXTENSIONS):
+        caminho = urlparse(url_imagem).path
+        if not caminho.lower().endswith(IMAGE_EXTENSIONS):
             return
 
-        if url_imagem not in vistos:
-            vistos.add(url_imagem)
-            imagens.append(url_imagem)
+        match_largura = re.search(r"/thumb/(\d+)/", caminho, flags=re.IGNORECASE)
+        largura = int(match_largura.group(1)) if match_largura else largura_srcset
+        chave = re.sub(r"/thumb/\d+/", "/thumb/", caminho, flags=re.IGNORECASE)
+
+        atual = candidatos.get(chave)
+        if atual is None or largura > atual[0]:
+            candidatos[chave] = (largura, url_imagem)
 
     for img in soup.find_all("img"):
         for attr in ["src", "data-src", "data-lazy", "data-original"]:
@@ -88,7 +94,16 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
         srcset = img.get("srcset")
         if srcset:
             for parte in srcset.split(","):
-                adicionar(parte.strip().split(" ")[0])
+                pedacos = parte.strip().split()
+                if not pedacos:
+                    continue
+
+                largura = 0
+                if len(pedacos) > 1:
+                    match_largura = re.fullmatch(r"(\d+)w", pedacos[1])
+                    if match_largura:
+                        largura = int(match_largura.group(1))
+                adicionar(pedacos[0], largura)
 
     for match in re.findall(
         r'https?://www\.auxiliadorapredial\.com\.br/_next/image\?url=[^"\'\\]+',
@@ -104,7 +119,7 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
     ):
         adicionar(match)
 
-    return imagens
+    return [url for _, url in candidatos.values()]
 
 
 def _criar_icone_pasta(size: int = 16):
@@ -1026,6 +1041,153 @@ class App:
 
                             self.root.after(0, lambda err=e: print(f"Erro: {err}"))
 
+                elif "vivareal" in url:
+
+                    def extrair_imagens_vivareal(html, url):
+                        import re
+                        from urllib.parse import unquote
+
+                        # hash -> lista de URLs encontradas
+                        imagens_por_hash = {}
+
+                        padrao = (
+                            r"https?:\\?/\\?/resizedimgs\.vivareal\.com"
+                            r'\\?/img/vr-listing/[^"\'<>\s]+'
+                        )
+
+                        encontradas = re.findall(padrao, html, re.IGNORECASE)
+
+                        for src in encontradas:
+
+                            # Corrige URLs escapadas
+                            src = src.replace("\\/", "/")
+                            src = src.replace("\\u0026", "&")
+                            src = src.replace("&amp;", "&")
+                            src = unquote(src)
+
+                            # Remove caracteres extras
+                            src = src.rstrip("\\\"'")
+
+                            # Confirma que é imagem
+                            if not re.search(
+                                r"\.(?:jpg|jpeg|png|webp)(?:\?|$)", src, re.IGNORECASE
+                            ):
+                                continue
+
+                            # Pega o hash da imagem
+                            match = re.search(
+                                r"/img/vr-listing/([a-f0-9]{32})/", src, re.IGNORECASE
+                            )
+
+                            if not match:
+                                continue
+
+                            hash_imagem = match.group(1)
+
+                            # Cria lista para esse hash
+                            if hash_imagem not in imagens_por_hash:
+                                imagens_por_hash[hash_imagem] = []
+
+                            # Evita URL duplicada
+                            if src not in imagens_por_hash[hash_imagem]:
+                                imagens_por_hash[hash_imagem].append(src)
+
+                        imagens = []
+
+                        # Processa cada foto
+                        for hash_imagem, urls in imagens_por_hash.items():
+
+                            melhor_url = None
+                            melhor_area = -1
+
+                            for src in urls:
+
+                                # Procura dimension=WxH
+                                match = re.search(
+                                    r"dimension=(\d+)x(\d+)", src, re.IGNORECASE
+                                )
+
+                                if match:
+                                    largura = int(match.group(1))
+                                    altura = int(match.group(2))
+
+                                    area = largura * altura
+
+                                    # Ignora thumbnails muito pequenas
+                                    if largura <= 200 and altura <= 200:
+                                        continue
+
+                                    if area > melhor_area:
+                                        melhor_area = area
+                                        melhor_url = src
+
+                                else:
+                                    # Se não tiver dimension, ainda pode ser uma imagem válida
+                                    if melhor_url is None:
+                                        melhor_url = src
+
+                            # Se encontrou uma versão válida
+                            if melhor_url:
+                                imagens.append(melhor_url)
+
+                        return imagens
+
+                    imagens = extrair_imagens_vivareal(html, url)
+
+                    total = len(imagens)
+
+                    print(f"Encontradas {total} imagens na VivaReal")
+
+                    self.root.after(0, lambda: self.resetar_progresso(total))
+
+                    for i, img_url in enumerate(imagens):
+
+                        try:
+                            self.root.after(
+                                0, lambda u=img_url: print(f"Baixando: {u}")
+                            )
+
+                            resp = requests.get(img_url, headers=headers, timeout=10)
+
+                            content_type = (
+                                resp.headers.get("content-type", "")
+                                .split(";")[0]
+                                .lower()
+                            )
+
+                            extensoes = {
+                                "image/jpeg": ".jpg",
+                                "image/png": ".png",
+                                "image/webp": ".webp",
+                            }
+
+                            ext = extensoes.get(content_type)
+
+                            if not resp.ok or ext is None:
+                                print(
+                                    f"Erro ao baixar imagem: "
+                                    f"HTTP {resp.status_code} | "
+                                    f"{content_type} | "
+                                    f"{img_url}"
+                                )
+                                continue
+
+                            img_data = resp.content
+
+                            img_path = os.path.join(imagens_path, f"img_{i}{ext}")
+
+                            with open(img_path, "wb") as f:
+                                f.write(img_data)
+
+                            self.root.after(
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+
+                            self.root.after(0, lambda: self.avancar_progresso(1))
+
+                        except Exception as e:
+                            self.root.after(0, lambda err=e: print(f"Erro: {err}"))
+
                 elif "creditoreal" in url:
 
                     def extrair_creditoreal(self, html, url):
@@ -1771,9 +1933,6 @@ class App:
     def pintagem(self, mascara, alvos=None):
 
         def tarefa(mascara, alvos):
-
-            etapas_total = 5
-
             try:
 
                 imagens_para_processar = self._coletar_imagens_para_processar(alvos)
@@ -1787,14 +1946,16 @@ class App:
                     )
                     return
 
-                self.root.after(0, lambda: self.resetar_progresso(etapas_total))
+                self.root.after(
+                    0, lambda: self.resetar_progresso(len(imagens_para_processar))
+                )
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo("Info", "Iniciando remoção de logo..."),
                 )
 
-                destino_path = os.path.join(self.home, "Destino")
                 for caminho_imagem in imagens_para_processar:
+                    mascara_temp_path = None
 
                     try:
 
@@ -1840,12 +2001,13 @@ class App:
                         else:
                             print(stderr or stdout)
 
-                        if os.path.exists(mascara_temp_path):
-                            os.remove(mascara_temp_path)
-
                     except Exception as e:
                         print(f"Erro ao processar {caminho_imagem}: {e}")
                         continue
+                    finally:
+                        if mascara_temp_path and os.path.exists(mascara_temp_path):
+                            os.remove(mascara_temp_path)
+                        self.root.after(0, lambda: self.avancar_progresso())
 
             except Exception as e:
 
