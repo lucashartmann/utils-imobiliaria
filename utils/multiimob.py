@@ -5,7 +5,7 @@ from urllib.parse import urljoin
 
 
 PADRAO_URL_IMAGEM = re.compile(
-    r"https?://cdn\.vistahost\.com\.br/multiimo/vista\.imobi/fotos/\d+/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
+    r"https?://cdn\.vistahost\.com\.br/[^\"'\s>/]+/vista\.imobi/fotos/\d+/[^\"'\s>]+?\.(?:jpe?g|png|webp)",
     flags=re.IGNORECASE,
 )
 

@@ -1393,7 +1393,11 @@ class App:
                         except Exception as e:
                             print(f"Erro ao baixar: {e}")
 
-                elif "multiimob.com.br" in url or "urban.imb.br" in url:
+                elif (
+                    "multiimob.com.br" in url
+                    or "urban.imb.br" in url
+                    or "novovista.com.br" in url
+                ):
                     imagens = extrair_imagens_multiimob(html, url)
 
                     if not imagens:
