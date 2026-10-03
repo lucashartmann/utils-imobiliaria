@@ -1,5 +1,6 @@
 import os
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
+from html import unescape
 
 # try:
 #     from view.anuncio import AnuncioApp
@@ -45,9 +46,11 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
         if not url_imagem:
             return None
 
-        url_imagem = url_imagem.strip().replace("\\/", "/").rstrip("\\")
+        url_imagem = unescape(url_imagem.strip().replace("\\/", "/")).rstrip("\\")
 
-        if imovel_id and f"/vendas/imoveis/{imovel_id}/" not in url_imagem.lower():
+        if imovel_id and imovel_id not in url_imagem:
+            return None
+        if "/thumbnail/" in url_imagem.lower():
             return None
 
         if url_imagem.startswith("//"):
@@ -114,6 +117,13 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
 
     for match in re.findall(
         r'https?://img\.auxiliadorapredial\.com\.br/thumb/1920/[^"\'\\]+',
+        html,
+        flags=re.IGNORECASE,
+    ):
+        adicionar(match)
+
+    for match in re.findall(
+        r'https?://gestor\.auxiliadorapredial\.com\.br/rest/image/[^"\'<>\s\\]+?\.(?:jpe?g|png|webp)(?:\?[^"\'<>\s\\]*)?',
         html,
         flags=re.IGNORECASE,
     ):
