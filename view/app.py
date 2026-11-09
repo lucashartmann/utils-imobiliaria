@@ -8,6 +8,7 @@ from html import unescape
 # except ImportError:
 #     from anuncio import AnuncioApp
 #     from pintarImagem import LogoPainterApp
+from utils.azenha import extrair_imagens_azenha
 from utils.chavesnamao import extrair_imagens_chavesnamao
 from utils.multiimob import extrair_imagens_multiimob, obter_html_renderizado_urban
 from utils.zapimoveis import (
@@ -130,6 +131,53 @@ def extrair_imagens_auxiliadora(html: str, pagina_url: str):
         adicionar(match)
 
     return [url for _, url in candidatos.values()]
+
+
+def extrair_imagens_lopes(html: str, pagina_url: str):
+    imovel_match = re.search(r"/imovel/(REO\d+)/", pagina_url, flags=re.IGNORECASE)
+    if not imovel_match:
+        return []
+
+    imovel_id = imovel_match.group(1)
+    padrao = re.compile(
+        rf"https?://betaimages\.lopes\.com\.br/realestate/med/"
+        rf"{re.escape(imovel_id)}/[^\"'<>\s\\]+?\.(?:jpe?g|png|webp)"
+        rf"(?:\?[^\"'<>\s\\]*)?",
+        flags=re.IGNORECASE,
+    )
+
+    imagens = []
+    vistos = set()
+    for url_imagem in padrao.findall(html):
+        url_imagem = unescape(url_imagem).replace("\\/", "/")
+        if url_imagem not in vistos:
+            vistos.add(url_imagem)
+            imagens.append(url_imagem)
+
+    return imagens
+
+
+def extrair_imagens_connectlar(html: str, pagina_url: str):
+    imovel_match = re.search(r"/imovel/(\d+)/", pagina_url)
+    if not imovel_match:
+        return []
+
+    imovel_id = imovel_match.group(1)
+    html = html.replace("\\u002F", "/").replace("\\/", "/")
+    padrao = re.compile(
+        rf"(https?://storage\.agil\.net/cdn/agil/\d+/property/{imovel_id}/)"
+        rf"[a-z]+/([0-9a-f]+\.(?:jpe?g|png|webp))",
+        flags=re.IGNORECASE,
+    )
+
+    imagens = []
+    vistos = set()
+    for base, arquivo in padrao.findall(html):
+        if arquivo not in vistos:
+            vistos.add(arquivo)
+            imagens.append(f"{base}big/{arquivo}")
+
+    return imagens
 
 
 def _criar_icone_pasta(size: int = 16):
@@ -1007,7 +1055,116 @@ class App:
 
                 imagens = []
 
-                if "auxiliadorapredial" in url:
+                if "lopes.com.br" in url:
+                    imagens = extrair_imagens_lopes(html, url)
+
+                    print(f"Encontradas {len(imagens)} imagens na Lopes")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    headers_lopes = {
+                        **headers,
+                        "Referer": url,
+                        "Accept": "image/avif,image/webp,image/apng,image/*,*/*;q=0.8",
+                    }
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            self.root.after(
+                                0, lambda u=img_url: print(f"Baixando: {u}")
+                            )
+                            resp = requests.get(
+                                img_url, headers=headers_lopes, timeout=10
+                            )
+
+                            content_type = resp.headers.get("content-type", "")
+                            if not resp.ok or not content_type.startswith("image/"):
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code} | "
+                                    f"{content_type} | {img_url}"
+                                )
+                                continue
+
+                            img_path = os.path.join(imagens_path, f"img_{i}.jpg")
+                            with open(img_path, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
+                        except Exception as e:
+                            self.root.after(0, lambda err=e: print(f"Erro: {err}"))
+
+                elif "connectlar.com.br" in url:
+                    imagens = extrair_imagens_connectlar(html, url)
+
+                    print(f"Encontradas {len(imagens)} imagens na Connectlar")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            self.root.after(
+                                0, lambda u=img_url: print(f"Baixando: {u}")
+                            )
+                            resp = requests.get(img_url, headers=headers, timeout=10)
+
+                            content_type = resp.headers.get("content-type", "")
+                            if not resp.ok or not content_type.startswith("image/"):
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code} | "
+                                    f"{content_type} | {img_url}"
+                                )
+                                continue
+
+                            ext = os.path.splitext(img_url)[1] or ".jpg"
+                            img_path = os.path.join(imagens_path, f"img_{i}{ext}")
+                            with open(img_path, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
+                        except Exception as e:
+                            self.root.after(0, lambda err=e: print(f"Erro: {err}"))
+
+                elif "azenha.com.br" in url:
+                    imagens = extrair_imagens_azenha(html, url)
+
+                    print(f"Encontradas {len(imagens)} imagens na Azenha")
+                    self.root.after(0, lambda: self.resetar_progresso(len(imagens)))
+
+                    for i, img_url in enumerate(imagens):
+                        try:
+                            self.root.after(
+                                0, lambda u=img_url: print(f"Baixando: {u}")
+                            )
+                            resp = requests.get(img_url, headers=headers, timeout=15)
+
+                            content_type = resp.headers.get("content-type", "")
+                            if not resp.ok or not content_type.startswith("image/"):
+                                print(
+                                    f"Erro ao baixar imagem: HTTP {resp.status_code} | "
+                                    f"{content_type} | {img_url}"
+                                )
+                                continue
+
+                            ext = {
+                                "image/png": ".png",
+                                "image/webp": ".webp",
+                            }.get(content_type.split(";")[0].strip(), ".jpg")
+                            img_path = os.path.join(imagens_path, f"img_{i}{ext}")
+                            with open(img_path, "wb") as f:
+                                f.write(resp.content)
+
+                            self.root.after(
+                                0, lambda p=img_path: self.adicionar_imagem_na_ui(p)
+                            )
+                            self.root.after(0, lambda: self.avancar_progresso(1))
+                        except Exception as e:
+                            self.root.after(0, lambda err=e: print(f"Erro: {err}"))
+
+                elif "auxiliadorapredial" in url:
 
                     imagens = extrair_imagens_auxiliadora(html, url)
 
